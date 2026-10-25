@@ -1,0 +1,95 @@
+name: Publish application image
+on:
+  workflow_call:
+    inputs:
+      application:
+        description: Application repository suffix
+        required: true
+        type: string
+      version:
+        description: Existing annotated release tag on main
+        required: true
+        type: string
+    secrets:
+      registry-user:
+        required: true
+      registry-password:
+        required: true
+permissions:
+  contents: read
+jobs:
+  publish:
+    name: Application image
+    runs-on:
+      group: stuhelper-arc
+      labels: stuhelper-arc-sh-k8s
+    timeout-minutes: 45
+    environment: release
+    env:
+      APPLICATION: ${{ inputs.application }}
+      VERSION: ${{ inputs.version }}
+      REGISTRY: ${{ vars.OCI_REGISTRY }}
+    steps:
+      - name: Validate release selection
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "DOCKER_CONFIG=$RUNNER_TEMP/docker-auth" >> "$GITHUB_ENV"
+          [[ "$APPLICATION" =~ ^(backend|web|admin)$ ]]
+          [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?$ ]]
+          [[ "$REGISTRY" =~ ^[a-zA-Z0-9][a-zA-Z0-9.:-]+$ ]]
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ inputs.version }}
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Verify tag and release ancestry
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git cat-file -t "refs/tags/$VERSION")" = tag
+          git merge-base --is-ancestor HEAD origin/main
+          test "$(git rev-parse "refs/tags/$VERSION^{commit}")" = "$(git rev-parse HEAD)"
+      - uses: docker/setup-buildx-action@v4.4.1
+        id: builder
+        with:
+          driver-opts: image=moby/buildkit:v0.34.1
+          cleanup: true
+      - uses: docker/login-action@v4.7.0
+        with:
+          registry: ${{ vars.OCI_REGISTRY }}
+          username: ${{ secrets.registry-user }}
+          password: ${{ secrets.registry-password }}
+      - name: Build and publish fixed source
+        shell: bash
+        env:
+          BUILDER: ${{ steps.builder.outputs.name }}
+        run: |
+          set -euo pipefail
+          image="$REGISTRY/stuhelper-next/$APPLICATION:$VERSION"
+          if docker buildx imagetools inspect "$image" > /dev/null 2> "$RUNNER_TEMP/image-existence.log"; then
+            echo 'Release image already exists; choose a new version.' >&2
+            exit 1
+          elif ! [[ "$(cat "$RUNNER_TEMP/image-existence.log")" =~ (manifest[[:space:]]unknown|not[[:space:]]found) ]]; then
+            echo 'Cannot confirm that the release image is absent.' >&2
+            exit 1
+          fi
+          docker buildx build --builder "$BUILDER" --platform linux/amd64 \
+            --build-arg "NODE_VERSION=$(cat .node-version)" \
+            --build-arg "GO_VERSION=$(cat .go-version)" \
+            --build-arg "SOURCE_REVISION=$(git rev-parse HEAD)" \
+            --build-arg "APP_VERSION=$VERSION" \
+            --provenance=true --sbom=true --metadata-file "$RUNNER_TEMP/image.json" \
+            --tag "$image" --push .
+          digest=$(jq -er '."containerimage.digest" | select(test("^sha256:[a-f0-9]{64}$"))' "$RUNNER_TEMP/image.json")
+          {
+            echo '### Published application image'
+            echo
+            echo "- Image: \`$image@$digest\`"
+            echo "- Source: \`$(git rev-parse HEAD)\`"
+            echo "- Go: \`$(cat .go-version)\`; Node: \`$(cat .node-version)\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Remove temporary authentication
+        if: always()
+        shell: bash
+        run: rm -rf -- "$DOCKER_CONFIG"
