@@ -37,3 +37,5 @@ pnpm exec lefthook install
 工具版本使用不可变的 `vX.Y.Z` tag。工具测试、公共工作流验证和消费者验证通过后发行，不在消费者构建时跟踪工具默认分支。
 
 项目使用 AGPL-3.0-only，检查器起源于 StuHelper Next，保留本仓库的许可证与来源说明。
+
+应用镜像发行使用 `image.yml`，只接收 main 上的带注释版本 tag。调用仓库配置 release 环境、`OCI_REGISTRY` 与 Registry 凭据。镜像保留版本、源码、digest 与构建证明；工作流不执行生产部署。
