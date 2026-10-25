@@ -31,6 +31,7 @@ jobs:
       REGISTRY: ${{ vars.OCI_REGISTRY }}
     steps:
       - name: Validate release selection
+        id: runtime
         shell: bash
         run: |
           set -euo pipefail
@@ -38,6 +39,8 @@ jobs:
           [[ "$APPLICATION" =~ ^(backend|web|admin)$ ]]
           [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?$ ]]
           [[ "$REGISTRY" =~ ^[a-zA-Z0-9][a-zA-Z0-9.:-]+$ ]]
+          [[ "${BUILDKIT_HOST:-}" =~ ^tcp://[A-Za-z0-9][A-Za-z0-9.-]*:[1-9][0-9]{0,4}$ ]]
+          printf 'buildkit-endpoint=%s\n' "$BUILDKIT_HOST" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v7.0.1
         with:
           ref: ${{ inputs.version }}
@@ -53,7 +56,8 @@ jobs:
       - uses: docker/setup-buildx-action@v4.4.1
         id: builder
         with:
-          driver-opts: image=moby/buildkit:v0.34.1
+          driver: remote
+          endpoint: ${{ steps.runtime.outputs.buildkit-endpoint }}
           cleanup: true
       - uses: docker/login-action@v4.7.0
         with:

@@ -39,3 +39,5 @@ pnpm exec lefthook install
 项目使用 AGPL-3.0-only，检查器起源于 StuHelper Next，保留本仓库的许可证与来源说明。
 
 应用镜像发行使用 `image.yml`，只接收 main 上的带注释版本 tag。调用仓库配置 release 环境、`OCI_REGISTRY` 与 Registry 凭据。镜像保留版本、源码、digest 与构建证明；工作流不执行生产部署。
+
+StuHelper 自建 Kubernetes runner 通过 `BUILDKIT_HOST` 提供远端 BuildKit，发行使用 remote driver，无需本地 Docker daemon。BuildKit 由 runner 管理，版本与连接结果记录在作业日志；作业仅清理自己的 builder 注册，不停止服务或清理其他任务缓存。
