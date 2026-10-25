@@ -35,7 +35,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          echo "DOCKER_CONFIG=$RUNNER_TEMP/docker-auth" >> "$GITHUB_ENV"
+          auth_directory=$(mktemp -d "$RUNNER_TEMP/registry-auth.XXXXXX")
+          printf 'auth-directory=%s\n' "$auth_directory" >> "$GITHUB_OUTPUT"
+          printf 'DOCKER_CONFIG=%s\n' "$auth_directory" >> "$GITHUB_ENV"
           [[ "$APPLICATION" =~ ^(backend|web|admin)$ ]]
           [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?$ ]]
           [[ "$REGISTRY" =~ ^[a-zA-Z0-9][a-zA-Z0-9.:-]+$ ]]
@@ -95,5 +97,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Remove temporary authentication
         if: always()
+        env:
+          AUTH_DIRECTORY: ${{ steps.runtime.outputs.auth-directory }}
         shell: bash
-        run: rm -rf -- "$DOCKER_CONFIG"
+        run: test -z "$AUTH_DIRECTORY" || rm -rf -- "$AUTH_DIRECTORY"
