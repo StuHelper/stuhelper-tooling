@@ -1,0 +1,29 @@
+name: Tooling tests
+on:
+  pull_request:
+    branches: [develop, main]
+  push:
+    branches: [develop, main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  check:
+    name: Tooling checks
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    env:
+      LEFTHOOK: '0'
+      DOCS_BASE_REF: ${{ github.event.pull_request.base.sha || github.event.before || github.sha }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: ./actions/setup
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run check
+      - run: pnpm exec stuhelper-check workflows

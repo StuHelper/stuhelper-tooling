@@ -1,0 +1,36 @@
+name: StuHelper check environment
+description: Install the repository's declared Node/pnpm versions and pinned workflow linter.
+inputs:
+  node-version-file:
+    description: Repository-relative Node version file
+    default: .node-version
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v7.1.0
+      with:
+        node-version-file: ${{ inputs.node-version-file }}
+        package-manager-cache: false
+    - uses: pnpm/action-setup@v6.1.0
+      with:
+        cache: false
+    - name: Install actionlint
+      shell: bash
+      env:
+        ACTIONLINT_VERSION: 1.7.12
+      run: |
+        set -euo pipefail
+        case "$(uname -m)" in
+          x86_64) architecture=amd64 ;;
+          aarch64|arm64) architecture=arm64 ;;
+          *) echo 'Unsupported actionlint architecture' >&2; exit 1 ;;
+        esac
+        directory=$(mktemp -d "$RUNNER_TEMP/actionlint.XXXXXX")
+        archive="actionlint_${ACTIONLINT_VERSION}_linux_${architecture}.tar.gz"
+        base="https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}"
+        curl --fail --silent --show-error --location "$base/$archive" --output "$directory/$archive"
+        curl --fail --silent --show-error --location "$base/actionlint_${ACTIONLINT_VERSION}_checksums.txt" --output "$directory/checksums.txt"
+        (cd "$directory" && awk -v archive="$archive" '$2 == archive { print; found=1 } END { if (!found) exit 1 }' checksums.txt > selected.sha256 && sha256sum --check selected.sha256)
+        tar -xzf "$directory/$archive" -C "$directory" actionlint
+        rm "$directory/$archive" "$directory/checksums.txt" "$directory/selected.sha256"
+        echo "$directory" >> "$GITHUB_PATH"

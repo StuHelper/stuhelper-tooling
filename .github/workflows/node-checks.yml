@@ -1,0 +1,43 @@
+name: Reusable Node checks
+on:
+  workflow_call:
+    inputs:
+      name:
+        description: Stable required check name
+        type: string
+        default: Node checks
+      setup-command:
+        description: Optional local setup after dependency installation
+        type: string
+        default: ''
+      check-command:
+        description: The same repository check command used locally
+        type: string
+        default: make check
+permissions:
+  contents: read
+jobs:
+  check:
+    name: ${{ inputs.name }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 25
+    env:
+      LEFTHOOK: '0'
+      DOCS_BASE_REF: ${{ github.event.pull_request.base.sha || github.event.before || github.sha }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: StuHelper/stuhelper-tooling/actions/setup@v0.1.0
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Prepare the application
+        if: inputs.setup-command != ''
+        env:
+          SETUP_COMMAND: ${{ inputs.setup-command }}
+        run: bash -euo pipefail -c "$SETUP_COMMAND"
+      - name: Check repository
+        env:
+          CHECK_COMMAND: ${{ inputs.check-command }}
+        run: bash -euo pipefail -c "$CHECK_COMMAND"
