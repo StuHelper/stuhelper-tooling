@@ -26,4 +26,4 @@ jobs:
       - uses: ./actions/setup
       - run: pnpm install --frozen-lockfile
       - run: pnpm run check
-      - run: pnpm exec stuhelper-check workflows
+      - run: node bin/stuhelper-check.mjs workflows
