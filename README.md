@@ -28,6 +28,10 @@ pnpm exec lefthook install
 
 `actions/setup` 安装仓库声明的 Node/pnpm 和固定版本 actionlint。`node-checks.yml` 与 `go-checks.yml` 执行消费者自身的检查命令，公开工作流不读取私有模块。
 
+go-checks.yml 支持 setup-command 和 check-command：前者在依赖安装后准备数据库等检查工具，后者默认为 make check，可指定仓库的隔离 PostgreSQL 检查脚本。命令失败立即使检查失败，正式 Go 检查始终使用 GOWORK=off。
+
+调用方 job ID 使用 check，并通过 name 指定检查名称，例如 Platform checks，对应必需检查 check / Platform checks。
+
 各仓库自行声明触发事件与 required check。工作流分别负责自己的职责，源代码候选联调和实际镜像组合验证在各自仓库维护。
 
 ## 开发约定
