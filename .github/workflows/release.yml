@@ -1,0 +1,123 @@
+name: Publish application release assets
+on:
+  workflow_call:
+    inputs:
+      application:
+        required: true
+        type: string
+      version:
+        description: Existing annotated tag on main
+        required: true
+        type: string
+    secrets:
+      modules-read-token:
+        required: false
+permissions:
+  contents: write
+jobs:
+  publish:
+    name: Release assets
+    runs-on: ubuntu-26.04
+    timeout-minutes: 45
+    env:
+      APPLICATION: ${{ inputs.application }}
+      VERSION: ${{ inputs.version }}
+      GOWORK: 'off'
+      CGO_ENABLED: '0'
+      LEFTHOOK: '0'
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ inputs.version }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify source tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$APPLICATION" =~ ^(backend|web|admin|campus-adapters)$ ]]
+          [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          test "$(git cat-file -t "refs/tags/$VERSION")" = tag
+          test "$(git rev-parse "refs/tags/$VERSION^{commit}")" = "$(git rev-parse HEAD)"
+          git merge-base --is-ancestor HEAD origin/main
+      - uses: StuHelper/stuhelper-tooling/actions/setup@v0.1.4
+      - uses: actions/setup-go@v7.0.0
+        if: inputs.application == 'backend' || inputs.application == 'campus-adapters'
+        with:
+          go-version-file: .go-version
+          cache: false
+      - name: Download private Go dependencies
+        if: inputs.application == 'backend'
+        env:
+          GH_TOKEN: ${{ secrets.modules-read-token }}
+          GIT_CONFIG_GLOBAL: ${{ runner.temp }}/release-modules.gitconfig
+          GOPRIVATE: github.com/StuHelper/*
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$GH_TOKEN"
+          gh auth setup-git --hostname github.com
+          go mod download
+      - name: Build fixed source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          output="$RUNNER_TEMP/release-output"
+          payload="$RUNNER_TEMP/release-payload"
+          mkdir "$output" "$payload"
+          case "$APPLICATION" in
+            backend)
+              for directory in cmd/*; do
+                test -f "$directory/main.go" || continue
+                name=$(basename "$directory")
+                test "$name" != backend || name=stuhelper-backend
+                go build -mod=readonly -trimpath -ldflags='-s -w' -o "$payload/$name" "./$directory"
+              done
+              ;;
+            campus-adapters)
+              python3 scripts/prepare-oracle-driver.py
+              go -C tools/oracle-sync build -mod=readonly -trimpath -ldflags='-s -w' -o "$payload/stuhelper-oracle-sync" .
+              ;;
+            web|admin)
+              pnpm install --frozen-lockfile
+              if test "$APPLICATION" = admin; then pnpm run setup; fi
+              pnpm run build
+              directory=dist
+              if test "$APPLICATION" = admin; then directory=apps/web-antd/dist; fi
+              cp -a "$directory/." "$payload/"
+              ;;
+          esac
+          archive="stuhelper-$APPLICATION-$VERSION-linux-amd64.tar.gz"
+          if [[ "$APPLICATION" =~ ^(web|admin)$ ]]; then archive="stuhelper-$APPLICATION-$VERSION.tar.gz"; fi
+          tar -czf "$output/$archive" -C "$payload" .
+          cp LICENSE "$output/LICENSE"
+          {
+            echo "Source: $GITHUB_REPOSITORY@$VERSION ($(git rev-parse HEAD))"
+            echo "Build: CI $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            echo "Node: $(node --version); pnpm: $(pnpm --version)"
+            if [[ "$APPLICATION" =~ ^(backend|campus-adapters)$ ]]; then go version; fi
+            echo "Target: linux/amd64; GOWORK=off; CGO_ENABLED=0 (Go builds)"
+          } > "$output/BUILD-INFO.txt"
+          (cd "$output" && sha256sum "$archive" LICENSE BUILD-INFO.txt > SHA256SUMS)
+          for file in "$output"/*; do test "$(stat -c %s "$file")" -lt 2147483648; done
+          if gh release view "$VERSION" --json assets > "$RUNNER_TEMP/existing-release.json"; then
+            for file in "$output"/*; do
+              name=$(basename "$file")
+              if jq -e --arg name "$name" '.assets[] | select(.name == $name)' "$RUNNER_TEMP/existing-release.json" > /dev/null; then
+                echo "Asset already exists: $name" >&2; exit 1
+              fi
+            done
+          else
+            gh release create "$VERSION" --verify-tag --title "$VERSION" --notes-file "$output/BUILD-INFO.txt"
+          fi
+          gh release upload "$VERSION" "$output"/*
+          verify=$(mktemp -d)
+          gh release download "$VERSION" --dir "$verify"
+          (cd "$verify" && sha256sum --check SHA256SUMS)
+          gh release view "$VERSION" --json url,assets >> "$GITHUB_STEP_SUMMARY"
+      - name: Remove temporary credential helper
+        if: always()
+        shell: bash
+        run: rm -f -- "$RUNNER_TEMP/release-modules.gitconfig"
