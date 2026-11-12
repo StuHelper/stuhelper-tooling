@@ -77,6 +77,7 @@ jobs:
               done
               ;;
             campus-adapters)
+              python3 scripts/prepare-oracle-driver.py
               go -C tools/oracle-sync build -mod=readonly -trimpath -ldflags='-s -w' -o "$payload/stuhelper-oracle-sync" .
               ;;
             web|admin)
