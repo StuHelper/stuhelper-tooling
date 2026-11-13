@@ -61,7 +61,7 @@ jobs:
           driver: remote
           endpoint: ${{ steps.runtime.outputs.buildkit-endpoint }}
           cleanup: true
-      - uses: docker/login-action@v4.7.0
+      - uses: docker/login-action@v4.8.0
         with:
           registry: ${{ vars.OCI_REGISTRY }}
           username: ${{ secrets.registry-user }}
