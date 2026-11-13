@@ -28,6 +28,8 @@ pnpm exec lefthook install
 
 `actions/setup` 安装仓库声明的 Node/pnpm 和固定版本 actionlint。`node-checks.yml` 与 `go-checks.yml` 执行消费者自身的检查命令，公开工作流不读取私有模块。
 
+actionlint 压缩包和校验清单的下载最多四次请求，总重试窗口 120 秒，每次连接限十秒、传输限三十秒。连接重置与 TLS 错误同样重试，最终失败使检查失败。完整下载后才发布临时文件，并继续验证 SHA-256，不修改共享网络或跳过检查。
+
 go-checks.yml 支持 setup-command 和 check-command：前者在依赖安装后准备数据库等检查工具，后者默认为 make check，可指定仓库的隔离 PostgreSQL 检查脚本。命令失败立即使检查失败，正式 Go 检查始终使用 GOWORK=off。
 
 调用方 job ID 使用 check，并通过 name 指定检查名称，例如 Platform checks，对应必需检查 check / Platform checks。
@@ -51,3 +53,5 @@ Registry 认证使用任务临时目录，清理目标来自创建步骤的明�
 应用附件发行使用 `release.yml`，接收 backend、web、admin 或 campus-adapters 以及 main 上既有的注释 tag。普通 runner 构建压缩包、许可证、构建来源与 SHA256SUMS，上传后重新下载校验。已存在同名附件时拒绝覆盖。
 
 Go 构建使用 GOWORK=off、CGO_ENABLED=0 和仓库声明的工具链。backend 通过 modules-read-token 下载私有依赖。历史 tag 可由调用方 workflow_dispatch 指定，不移动源码 tag。附件永久保留，每个附件小于 2 GiB，不启用 Actions artifact 或共享缓存。
+
+campus-adapters 通过提供方 scripts/build-oracle-sync.sh 构建同步工具，注入 tag@完整源码 SHA。构建后以 --mode=version 回读核对，错误时停止发行。已存在批次保留原 source_version，新版本只影响后续生成的批次。

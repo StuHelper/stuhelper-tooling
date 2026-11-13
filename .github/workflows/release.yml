@@ -40,7 +40,7 @@ jobs:
           test "$(git cat-file -t "refs/tags/$VERSION")" = tag
           test "$(git rev-parse "refs/tags/$VERSION^{commit}")" = "$(git rev-parse HEAD)"
           git merge-base --is-ancestor HEAD origin/main
-      - uses: StuHelper/stuhelper-tooling/actions/setup@v0.1.4
+      - uses: StuHelper/stuhelper-tooling/actions/setup@v0.1.6
       - uses: actions/setup-go@v7.0.0
         if: inputs.application == 'backend' || inputs.application == 'campus-adapters'
         with:
@@ -78,7 +78,7 @@ jobs:
               ;;
             campus-adapters)
               python3 scripts/prepare-oracle-driver.py
-              go -C tools/oracle-sync build -mod=readonly -trimpath -ldflags='-s -w' -o "$payload/stuhelper-oracle-sync" .
+              bash scripts/build-oracle-sync.sh "$payload/stuhelper-oracle-sync" "$VERSION@$(git rev-parse HEAD)"
               ;;
             web|admin)
               pnpm install --frozen-lockfile
