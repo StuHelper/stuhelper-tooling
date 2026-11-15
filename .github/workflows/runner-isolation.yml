@@ -1,0 +1,21 @@
+name: Public runner isolation
+on:
+  pull_request:
+    branches: [develop, main]
+  push:
+    branches: [develop, main]
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  guard:
+    uses: ./.github/workflows/node-checks.yml
+    with:
+      name: Public runner isolation
+      runs-on: '{"group":"stuhelper-arc","labels":"stuhelper-arc-sh-k8s"}'
+      check-command: |
+        test "$RUNNER_ENVIRONMENT" = github-hosted
+        test ! -d /opt/stuhelper-cache
+        test ! -d /var/lib/stuhelper-ci1
