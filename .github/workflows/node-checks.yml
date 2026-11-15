@@ -2,6 +2,10 @@ name: Reusable Node checks
 on:
   workflow_call:
     inputs:
+      runs-on:
+        description: JSON runner label or group/labels object; public callers always use hosted runners
+        type: string
+        default: '"ubuntu-26.04"'
       name:
         description: Stable required check name
         type: string
@@ -19,7 +23,7 @@ permissions:
 jobs:
   check:
     name: ${{ inputs.name }}
-    runs-on: ubuntu-26.04
+    runs-on: ${{ fromJSON(github.event.repository.private && inputs.runs-on || '"ubuntu-26.04"') }}
     timeout-minutes: 25
     env:
       LEFTHOOK: '0'
@@ -29,7 +33,7 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
-      - uses: StuHelper/stuhelper-tooling/actions/setup@v0.1.6
+      - uses: StuHelper/stuhelper-tooling/actions/setup@v0.1.7
       - name: Install locked dependencies
         run: pnpm install --frozen-lockfile
       - name: Prepare the application

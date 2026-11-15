@@ -26,7 +26,15 @@ pnpm exec lefthook install
 
 ## CI 复用
 
-`actions/setup` 安装仓库声明的 Node/pnpm 和固定版本 actionlint。`node-checks.yml` 与 `go-checks.yml` 执行消费者自身的检查命令，公开工作流不读取私有模块。
+`actions/setup` 安装仓库声明的 Node/pnpm 和固定版本 actionlint。可通过 go-version-file 安装 Go，通过 postgres: 'true' 准备 PostgreSQL。自建 runner 优先复用镜像中版本一致的工具，缺失时安装到作业临时目录。
+
+`node-checks.yml`、`go-checks.yml` 与 `release.yml` 接受 JSON 字符串 runs-on。私有调用方传入 {"group":"stuhelper-arc","labels":"stuhelper-arc-sh-k8s"}，默认值为 "ubuntu-26.04"。公开调用方始终使用托管 ubuntu-26.04，不接受自建环境覆盖。
+
+Node 从 nodejs.org 获取并核验官方 SHA-256；Go 从官方分发站获取并核验 go.dev 元数据中的 SHA-256。大文件分四段并行下载，每段最多三次请求，每次最多十分钟，重组后检查长度和摘要。传输失败不留下完整文件。
+
+pnpm 从 registry.npmjs.org 获取并核验 SHA-512。actionlint 使用固定发行的官方 SHA-256。PostgreSQL 优先复用预装元包，缺失时从官方 PGDG 稳定源安装，通过固定摘要核验源密钥，再由 APT 核验签名元数据与包摘要。
+
+预装工具来自已核验的 runner 镜像。此版本的引导目录仅存活于当前临时 runner，不上传 GitHub 缓存。持久缓存由私有基础设施独立维护，公开仓库不挂载私有缓存。
 
 actionlint 压缩包和校验清单的下载最多四次请求，总重试窗口 120 秒，每次连接限十秒、传输限三十秒。连接重置与 TLS 错误同样重试，最终失败使检查失败。完整下载后才发布临时文件，并继续验证 SHA-256，不修改共享网络或跳过检查。
 
