@@ -13,27 +13,12 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Prepare declared ARC toolchains
-      if: runner.environment == 'self-hosted'
+    - name: Prepare declared toolchains
       shell: bash
       env:
         NODE_VERSION_FILE: ${{ inputs.node-version-file }}
         GO_VERSION_FILE: ${{ inputs.go-version-file }}
       run: bash "$GITHUB_ACTION_PATH/arc-toolchains.sh"
-    - uses: actions/setup-node@v7.1.0
-      if: runner.environment != 'self-hosted'
-      with:
-        node-version-file: ${{ inputs.node-version-file }}
-        package-manager-cache: false
-    - uses: pnpm/action-setup@v6.1.0
-      if: runner.environment != 'self-hosted'
-      with:
-        cache: false
-    - uses: actions/setup-go@v7.0.0
-      if: runner.environment != 'self-hosted' && inputs.go-version-file != ''
-      with:
-        go-version-file: ${{ inputs.go-version-file }}
-        cache: false
     - name: Install actionlint
       shell: bash
       run: bash "$GITHUB_ACTION_PATH/actionlint.sh"
