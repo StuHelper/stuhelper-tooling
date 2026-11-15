@@ -20,9 +20,10 @@ permissions:
 jobs:
   publish:
     name: Application image
+    if: github.event_name != 'pull_request' && github.event_name != 'pull_request_target'
     runs-on:
-      group: stuhelper-arc
-      labels: stuhelper-arc-sh-k8s
+      group: ${{ github.event.repository.private && 'stuhelper-arc' || 'stuhelper-arc-release' }}
+      labels: ${{ github.event.repository.private && 'stuhelper-arc-sh-k8s' || 'stuhelper-arc-sh-release' }}
     timeout-minutes: 45
     environment: release
     env:
