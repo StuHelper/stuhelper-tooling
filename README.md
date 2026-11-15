@@ -26,7 +26,9 @@ pnpm exec lefthook install
 
 ## CI 复用
 
-`actions/setup` 安装仓库声明的 Node/pnpm 和固定版本 actionlint。可通过 go-version-file 安装 Go，通过 postgres: 'true' 准备 PostgreSQL。自建 runner 优先复用镜像中版本一致的工具，缺失时安装到作业临时目录。
+`actions/setup` 安装仓库声明的 Node/pnpm 和固定版本 actionlint。可通过 go-version-file 安装 Go，通过 postgres: 'true' 准备 PostgreSQL。所有 runner 优先复用镜像中版本一致的工具，缺失时安装到作业临时目录。
+
+setup 不再嵌套 setup-node、setup-go 或 pnpm action，避免 ARC 下载实际会被跳过的 Actions 源码。
 
 `node-checks.yml`、`go-checks.yml` 与 `release.yml` 接受 JSON 字符串 runs-on。私有调用方传入 {"group":"stuhelper-arc","labels":"stuhelper-arc-sh-k8s"}，默认值为 "ubuntu-26.04"。公开调用方始终使用托管 ubuntu-26.04，不接受自建环境覆盖。
 
