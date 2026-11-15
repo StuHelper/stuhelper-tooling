@@ -1,37 +1,43 @@
 name: StuHelper check environment
-description: Install the repository's declared Node/pnpm versions and pinned workflow linter.
+description: Install declared tools, preferring preinstalled tools on self-hosted runners.
 inputs:
   node-version-file:
     description: Repository-relative Node version file
     default: .node-version
+  go-version-file:
+    description: Optional repository-relative Go version file
+    default: ''
+  postgres:
+    description: Install or reuse PostgreSQL server and client meta-packages
+    default: 'false'
 runs:
   using: composite
   steps:
+    - name: Prepare declared ARC toolchains
+      if: runner.environment == 'self-hosted'
+      shell: bash
+      env:
+        NODE_VERSION_FILE: ${{ inputs.node-version-file }}
+        GO_VERSION_FILE: ${{ inputs.go-version-file }}
+      run: bash "$GITHUB_ACTION_PATH/arc-toolchains.sh"
     - uses: actions/setup-node@v7.1.0
+      if: runner.environment != 'self-hosted'
       with:
         node-version-file: ${{ inputs.node-version-file }}
         package-manager-cache: false
     - uses: pnpm/action-setup@v6.1.0
+      if: runner.environment != 'self-hosted'
       with:
+        cache: false
+    - uses: actions/setup-go@v7.0.0
+      if: runner.environment != 'self-hosted' && inputs.go-version-file != ''
+      with:
+        go-version-file: ${{ inputs.go-version-file }}
         cache: false
     - name: Install actionlint
       shell: bash
-      env:
-        ACTIONLINT_VERSION: 1.7.12
-      run: |
-        set -euo pipefail
-        case "$(uname -m)" in
-          x86_64) architecture=amd64 ;;
-          aarch64|arm64) architecture=arm64 ;;
-          *) echo 'Unsupported actionlint architecture' >&2; exit 1 ;;
-        esac
-        directory=$(mktemp -d "$RUNNER_TEMP/actionlint.XXXXXX")
-        archive="actionlint_${ACTIONLINT_VERSION}_linux_${architecture}.tar.gz"
-        base="https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}"
-        trap 'rm -rf -- "$directory"' ERR
-        bash "$GITHUB_ACTION_PATH/download.sh" "$base/$archive" "$directory/$archive"
-        bash "$GITHUB_ACTION_PATH/download.sh" "$base/actionlint_${ACTIONLINT_VERSION}_checksums.txt" "$directory/checksums.txt"
-        (cd "$directory" && awk -v archive="$archive" '$2 == archive { print; found=1 } END { if (!found) exit 1 }' checksums.txt > selected.sha256 && sha256sum --check selected.sha256)
-        tar -xzf "$directory/$archive" -C "$directory" actionlint
-        rm "$directory/$archive" "$directory/checksums.txt" "$directory/selected.sha256"
-        echo "$directory" >> "$GITHUB_PATH"
+      run: bash "$GITHUB_ACTION_PATH/actionlint.sh"
+    - name: Prepare PostgreSQL tools
+      if: inputs.postgres == 'true'
+      shell: bash
+      run: bash "$GITHUB_ACTION_PATH/postgres.sh"

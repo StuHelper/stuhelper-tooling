@@ -4,6 +4,6 @@
 
 修改检查器的关键规则或失败路径时更新回归用例。各检查可独立运行；只有没有数据依赖的任务可以并行。GitHub 输出提供文件注解和摘要，本地输出保留可读的检查名称与原因。
 
-普通检查使用 ubuntu-26.04；Docker 与 BJ1 Registry 任务使用 StuHelper 自建 runner。共享工具不读取生产凭据。发行 tag 保持不可变，消费者固定已验证版本。
+公开仓库普通检查使用 ubuntu-26.04，私有仓库使用 StuHelper 自建 runner；Docker 与 BJ1 Registry 任务使用自建 runner。共享工具不读取生产凭据。发行 tag 保持不可变，消费者固定已验证版本。
 
 普通变更从最新 origin/develop 创建任务工作树，通过 PR squash 合入 develop。首次工程基线与后续已授权发行按当前任务范围执行。真实部署、业务实现与工程检查分别报告。
