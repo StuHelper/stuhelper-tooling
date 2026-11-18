@@ -47,12 +47,17 @@ export function checkRepository(root) {
   const errors = [];
   for (const file of files) {
     const location = path.join(root, file);
-    if (!fs.existsSync(location) || !fs.lstatSync(location).isFile()) continue;
+    const stat = fs.lstatSync(location, { throwIfNoEntry: false });
+    if (!stat) continue;
+    if (!stat.isFile()) {
+      errors.push(...privateMaterialErrors(file));
+      continue;
+    }
     const source = sourceForCheck(file, location);
     if (source.includes(0)) { errors.push(...privateMaterialErrors(file)); continue; }
     const executable = modes.has(file) ? modes.get(file) === '100755' : Boolean(fs.statSync(location).mode & 0o111);
     errors.push(...checkSource(file, source.toString('utf8'), executable));
   }
-  if (errors.length) throw new Error(errors.join('\n'));
+  if (errors.length) throw new AggregateError(errors, errors.join('\n'));
   return files.length;
 }

@@ -97,30 +97,39 @@ function parsedFile(file, siteDocument) {
   return { source, frontmatter, anchors, githubAnchors, links, prose, paragraphs, headings, scenarios, tableRows };
 }
 
-const gitText = (root, ...args) => execFileSync('git', ['-C', root, ...args], { maxBuffer: gitMaxBuffer, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+const gitText = (root, env, ...args) => execFileSync('git', ['-C', root, ...args], { env, maxBuffer: gitMaxBuffer, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
 const shanghaiDate = date => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit', numberingSystem: 'latn' }).format(new Date(date));
 const withoutUpdated = source => source.replace(/^updated:.*$/m, '').trim();
-function contentDate(root, relative) {
-  for (const entry of gitText(root, 'log', '--format=%H %cI', '--', relative).split('\n')) {
+function contentDate(root, relative, env) {
+  let tip = 'HEAD';
+  const shallowFile = path.resolve(root, gitText(root, env, 'rev-parse', '--git-path', 'shallow'));
+  const shallow = new Set(fs.existsSync(shallowFile) ? fs.readFileSync(shallowFile, 'utf8').trim().split('\n') : []);
+  while (true) {
+    const entry = gitText(root, env, 'log', '-1', '--format=%H %cI', tip, '--', relative);
+    if (!entry) throw new Error(`Cannot determine the content date of ${relative}`);
     const [revision, date] = entry.split(' ');
-    const current = gitText(root, 'show', `${revision}:${relative}`);
-    let previous = '';
-    try { previous = gitText(root, 'show', `${revision}^:${relative}`); } catch { /* New file. */ }
-    if (withoutUpdated(current) !== withoutUpdated(previous)) return shanghaiDate(date);
+    if (shallow.has(revision)) throw new Error(`${relative}: shallow history ends at ${revision}; fetch full history to check updated`);
+    const current = withoutUpdated(gitText(root, env, 'show', `${revision}:${relative}`));
+    const parents = gitText(root, env, 'show', '-s', '--format=%P', revision).split(' ').filter(Boolean);
+    const matching = parents.find(parent => {
+      try { return current === withoutUpdated(gitText(root, env, 'show', `${parent}:${relative}`)); }
+      catch (error) { if (error.status === 128) return false; throw error; }
+    });
+    if (!matching) return shanghaiDate(date);
+    tip = matching;
   }
-  throw new Error(`Cannot determine the content date of ${relative}`);
 }
-function changedDates(root, files, requestedBase, now) {
+function changedDates(root, files, requestedBase, now, env) {
   let base = requestedBase;
-  try { if (fs.realpathSync(gitText(root, 'rev-parse', '--show-toplevel')) !== root) return new Map(); }
+  try { if (fs.realpathSync(gitText(root, env, 'rev-parse', '--show-toplevel')) !== root) return new Map(); }
   catch { return new Map(); }
   if (!base) {
-    try { gitText(root, 'rev-parse', '--verify', 'origin/develop'); base = 'origin/develop'; }
+    try { gitText(root, env, 'rev-parse', '--verify', 'origin/develop'); base = 'origin/develop'; }
     catch { base = 'HEAD'; }
   }
   if (/^0+$/.test(base)) base = null;
   if (base) {
-    try { gitText(root, 'rev-parse', '--verify', `${base}^{commit}`); }
+    try { gitText(root, env, 'rev-parse', '--verify', `${base}^{commit}`); }
     catch { if (base === 'HEAD' && !requestedBase) base = null; else throw new Error(`Invalid documentation base: ${base}`); }
   }
   const dates = new Map();
@@ -129,19 +138,19 @@ function changedDates(root, files, requestedBase, now) {
     if (!relative.startsWith('docs/') || path.basename(file) === 'TEMPLATE.md') continue;
     const current = fs.readFileSync(file, 'utf8');
     let previous = '';
-    try { if (base) previous = gitText(root, 'show', `${base}:${relative}`); } catch { /* New topic. */ }
+    try { if (base) previous = gitText(root, env, 'show', `${base}:${relative}`); } catch { /* New topic. */ }
     if (current.trim() === previous) continue;
     let committed = '';
-    try { committed = gitText(root, 'show', `HEAD:${relative}`); } catch { /* New uncommitted topic. */ }
+    try { committed = gitText(root, env, 'show', `HEAD:${relative}`); } catch { /* New uncommitted topic. */ }
     const date = withoutUpdated(current) !== withoutUpdated(committed)
       ? shanghaiDate(now)
-      : contentDate(root, relative);
+      : contentDate(root, relative, env);
     dates.set(file, date);
   }
   return dates;
 }
 
-export function checkDocs(directory, { base = process.env.DOCS_BASE_REF, now = Date.now(), glossary: suppliedGlossary } = {}) {
+export function checkDocs(directory, { base = process.env.DOCS_BASE_REF, now = Date.now(), glossary: suppliedGlossary, env = process.env } = {}) {
   const root = fs.realpathSync(directory);
   const errors = [];
   const cache = new Map();
@@ -151,18 +160,20 @@ export function checkDocs(directory, { base = process.env.DOCS_BASE_REF, now = D
   };
   const files = filesIn(root);
   const ownGlossary = path.join(root, 'docs/spec/terminology.md');
-  const glossary = suppliedGlossary ? path.resolve(root, suppliedGlossary) : ownGlossary;
-  const requiredDates = changedDates(root, files, base, now);
+  const requested = suppliedGlossary === undefined ? ownGlossary : path.resolve(root, suppliedGlossary);
+  const glossary = suppliedGlossary !== undefined || fs.existsSync(requested) ? fs.realpathSync(requested) : null;
+  const requiredDates = changedDates(root, files, base, now, env);
   const today = shanghaiDate(now);
   const scenarioOwners = new Map();
   const adrOwners = new Map();
-  const aliases = fs.existsSync(glossary) ? fs.readFileSync(glossary, 'utf8').split('\n').filter(line => line.startsWith('|')).flatMap(line => {
+  const aliases = glossary ? fs.readFileSync(glossary, 'utf8').split('\n').filter(line => line.startsWith('|')).flatMap(line => {
     const cells = line.split('|').map(cell => cell.trim());
-    return cells.length === 7 && !['替代表述', '---', '—'].includes(cells[5]) ? cells[5].split('、').map(alias => [alias, cells[1]]) : [];
+    if (cells.length !== 7 || cells[5] === '替代表述' || /^:?-{3,}:?$/.test(cells[5])) return [];
+    return cells[5].split('、').map(alias => alias.trim()).filter(alias => alias && !['-', '—', '无'].includes(alias)).map(alias => [alias, cells[1]]);
   }) : [];
   const siteFile = path.join(root, 'mkdocs.yml');
-  const siteConfig = fs.existsSync(siteFile) ? fs.readFileSync(siteFile, 'utf8') : '';
-  const repository = siteConfig.match(/^repo_url:\s*(https:\/\/github\.com\/[^\s]+)\s*$/m)?.[1];
+  const siteConfig = fs.existsSync(siteFile) ? parseYaml(fs.readFileSync(siteFile, 'utf8'), { logLevel: 'silent' }) : null;
+  const repository = siteConfig?.repo_url?.replace(/\/+$/, '');
 
   for (const file of files) {
     const relative = posix(path.relative(root, file));
@@ -246,8 +257,19 @@ export function checkDocs(directory, { base = process.env.DOCS_BASE_REF, now = D
       if (!listed.has(file)) errors.push(`${posix(path.relative(root, index))}: missing topic ${path.basename(file)}`);
     }
   }
-  if (/^nav:/m.test(siteConfig)) {
-    const navigation = new Set([...siteConfig.matchAll(/^\s*-\s+[^:\n]+:\s+([\w./-]+\.md)\s*$/gm)].map(match => match[1]));
+  if (siteConfig?.nav) {
+    const navigation = new Set();
+    function visit(item) {
+      if (typeof item === 'string') {
+        if (/^[a-z][\w+.-]*:|^\/\//i.test(item)) return;
+        const target = item.split(/[?#]/)[0];
+        if (/\.md$/i.test(target)) navigation.add(path.posix.normalize(target));
+      } else if (item && typeof item === 'object') Object.values(item).forEach(visit);
+    }
+    visit(siteConfig.nav);
+    for (const target of navigation) {
+      if (!fs.existsSync(path.join(root, 'docs', target))) errors.push(`mkdocs.yml: missing navigation target ${target}`);
+    }
     for (const file of files.filter(file => posix(path.relative(root, file)).startsWith('docs/'))) {
       const target = posix(path.relative(path.join(root, 'docs'), file));
       if (!navigation.has(target)) errors.push(`mkdocs.yml: missing navigation ${target}`);
