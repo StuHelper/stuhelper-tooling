@@ -66,7 +66,7 @@ export async function checkStaged(root, { eslint = false } = {}) {
       try { git(target, ['rev-parse', '--verify', 'HEAD'], env); } catch { base = '0'.repeat(40); }
       errors.push(...await lintMarkdown(target), ...checkDocs(target, { base, env }).errors);
     }
-    if (errors.length) throw new Error(errors.join('\n'));
+    if (errors.length) throw new AggregateError(errors, errors.join('\n'));
     if (eslint && scripts.length) {
       const checked = spawnSync('pnpm', ['exec', 'eslint', '--max-warnings=0', '--no-warn-ignored', ...scripts], { cwd: target, env, stdio: 'inherit' });
       if (checked.error) throw checked.error;

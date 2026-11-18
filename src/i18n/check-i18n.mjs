@@ -105,7 +105,7 @@ export function check(directory) {
         && !/\bfrom\s*['"](?:@vben\/locales|vue-i18n)['"]/.test(text)) continue;
     const calls = [...text.matchAll(/\b\$?t\(\s*['"]([^'"]+)['"]/g)].map(match => match[1]);
     const metadata = admin && !sharedPackage ? [...text.matchAll(/['"]([\w-]+\.[\w.-]+)['"]/g)].map(match => match[1]).filter(key => namespaces.has(key.split('.')[0])) : [];
-    for (const key of [...calls, ...metadata]) assert(Object.hasOwn(known, key), `Unknown message key: ${path.relative(directory, file)} -> ${key}`);
+    for (const key of [...calls, ...metadata]) assert(Object.hasOwn(known, key), `${path.relative(directory, file)}: Unknown message key: ${key}`);
   }
   for (const locale of languages) {
     assert(Intl.NumberFormat.supportedLocalesOf([locale]).length, `Number locale unavailable: ${locale}`);

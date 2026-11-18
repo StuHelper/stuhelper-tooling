@@ -47,6 +47,6 @@ export function checkRepository(root) {
     const executable = modes.has(file) ? modes.get(file) === '100755' : Boolean(fs.statSync(location).mode & 0o111);
     errors.push(...checkSource(file, source.toString('utf8'), executable));
   }
-  if (errors.length) throw new Error(errors.join('\n'));
+  if (errors.length) throw new AggregateError(errors, errors.join('\n'));
   return files.length;
 }
