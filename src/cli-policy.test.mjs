@@ -12,7 +12,7 @@ test('CLI validates every argument before running its command', t => {
   t.after(() => fs.rmSync(root, { recursive: true }));
   const cli = new URL('../bin/stuhelper-check.mjs', import.meta.url).pathname;
   const run = (...args) => spawnSync(process.execPath, [cli, ...args], { cwd: root, encoding: 'utf8', env: { ...process.env, GITHUB_STEP_SUMMARY: '' } });
-  for (const args of [['docs', 'README.md'], ['repository', '--eslint'], ['staged', '--glossary', 'missing']]) {
+  for (const args of [['docs', 'README.md'], ['repository', '--eslint'], ['contracts', '--glossary', 'missing']]) {
     const r = run(...args);
     assert.equal(r.status, 1);
     assert.match(r.stderr, /argument|option|only supported/i);
