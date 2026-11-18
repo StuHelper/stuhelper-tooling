@@ -6,7 +6,7 @@ import test from 'node:test';
 import { spawnSync, execFileSync } from 'node:child_process';
 import { parse } from 'yaml';
 
-const steps = parse(fs.readFileSync('.github/workflows/release.yml', 'utf8')).jobs.publish.steps;
+const steps = parse(fs.readFileSync('actions/release-assets/action.yml', 'utf8')).runs.steps;
 const script = steps.find(step => step.name === 'Publish verified assets').run;
 function fixture(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'release-publish-'));

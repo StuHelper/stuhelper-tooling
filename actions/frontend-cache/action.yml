@@ -1,0 +1,38 @@
+name: Frontend build cache
+description: Restore Vite optimizer files and incremental TypeScript build information on hosted Linux.
+runs:
+  using: composite
+  steps:
+    - id: scope
+      shell: bash
+      run: |
+        set -euo pipefail
+        [[ "$RUNNER_ENVIRONMENT" == github-hosted ]]
+        write=false
+        if [[ "$GITHUB_EVENT_NAME" == push || "$GITHUB_EVENT_NAME" == workflow_dispatch ]] &&
+           [[ "$GITHUB_REF" == refs/heads/develop || "$GITHUB_REF" == refs/heads/main ]]; then
+          write=true
+        fi
+        echo "write=$write" >> "$GITHUB_OUTPUT"
+    - uses: actions/cache@v6.1.0
+      if: steps.scope.outputs.write == 'true'
+      with:
+        path: |
+          node_modules/.vite
+          node_modules/.tmp/*.tsbuildinfo
+          apps/*/node_modules/.vite
+          apps/*/node_modules/.tmp/*.tsbuildinfo
+        key: frontend-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pnpm-lock.yaml', '.node-version', '**/tsconfig*.json', '**/vite.config.*') }}-${{ github.sha }}
+        restore-keys: |
+          frontend-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pnpm-lock.yaml', '.node-version', '**/tsconfig*.json', '**/vite.config.*') }}-
+    - uses: actions/cache/restore@v6.1.0
+      if: steps.scope.outputs.write != 'true'
+      with:
+        path: |
+          node_modules/.vite
+          node_modules/.tmp/*.tsbuildinfo
+          apps/*/node_modules/.vite
+          apps/*/node_modules/.tmp/*.tsbuildinfo
+        key: frontend-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pnpm-lock.yaml', '.node-version', '**/tsconfig*.json', '**/vite.config.*') }}-${{ github.sha }}
+        restore-keys: |
+          frontend-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pnpm-lock.yaml', '.node-version', '**/tsconfig*.json', '**/vite.config.*') }}-

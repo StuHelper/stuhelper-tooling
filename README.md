@@ -26,44 +26,14 @@ pnpm exec lefthook install
 
 ## CI 复用
 
-`actions/setup` 安装仓库声明的 Node/pnpm 和固定版本 actionlint。可通过 go-version-file 安装 Go，通过 postgres: 'true' 准备 PostgreSQL。所有 runner 优先复用镜像中版本一致的工具，缺失时安装到作业临时目录。
+`actions/setup` 使用仓库声明的 Node、pnpm 和 Go 版本。可信 develop/main 的成功运行通过 setup-node 和 setup-go 保存 pnpm store、Go 模块与编译结果。其他运行使用相同键只读恢复。私有仓依赖缓存要求站点已启用自建服务。
 
-setup 不再嵌套 setup-node、setup-go 或 pnpm action，避免 ARC 下载实际会被跳过的 Actions 源码。
+公开 Linux 检查使用 `node-checks.yml` 或 `go-checks.yml`，私有仓使用同名的 `-private.yml`。检查名称由调用方指定。发行工作流也按此约定选择。公开应用镜像由托管 runner 推送 GHCR，私有应用使用站点提供的 BuildKit。
 
-`node-checks.yml`、`go-checks.yml` 与 `release.yml` 接受 JSON 字符串 runs-on。私有调用方传入 {"group":"stuhelper-arc","labels":"stuhelper-arc-sh-k8s"}，默认值为 "ubuntu-26.04"。公开调用方始终使用托管 ubuntu-26.04，不接受自建环境覆盖。
+前端通过 `actions/frontend-cache` 复用 Vite 与 TypeScript 的中间文件。安装锁定依赖后调用 `actions/chromium`，按锁文件复用 Chromium，并在每台托管 runner 上准备系统库。Go 正式检查使用 `GOWORK=off`。
 
-Node 从 nodejs.org 获取并核验官方 SHA-256；Go 从官方分发站获取并核验 go.dev 元数据中的 SHA-256。大文件分四段并行下载，每段最多三次请求，每次最多十分钟，重组后检查长度和摘要。传输失败不留下完整文件。
+### 发行文件检查
 
-pnpm 从 registry.npmjs.org 获取并核验 SHA-512。actionlint 使用固定发行的官方 SHA-256。PostgreSQL 优先复用预装元包，缺失时从官方 PGDG 稳定源安装，通过固定摘要核验源密钥，再由 APT 核验签名元数据与包摘要。
+调用方通过可复用工作流的版本选择发行实现。工作流按自身源码提交检出同版本的构建 action。打包前校验 backend 的可执行入口、Web 与 Admin 的非空页面入口，以及校园同步工具输出的唯一版本记录。
 
-预装工具来自已核验的 runner 镜像。此版本的引导目录仅存活于当前临时 runner，不上传 GitHub 缓存。持久缓存由私有基础设施独立维护，公开仓库不挂载私有缓存。
-
-actionlint 压缩包和校验清单的下载最多四次请求，总重试窗口 120 秒，每次连接限十秒、传输限三十秒。连接重置与 TLS 错误同样重试，最终失败使检查失败。完整下载后才发布临时文件，并继续验证 SHA-256，不修改共享网络或跳过检查。
-
-go-checks.yml 支持 setup-command 和 check-command：前者在依赖安装后准备数据库等检查工具，后者默认为 make check，可指定仓库的隔离 PostgreSQL 检查脚本。命令失败立即使检查失败，正式 Go 检查始终使用 GOWORK=off。
-
-调用方 job ID 使用 check，并通过 name 指定检查名称，例如 Platform checks，对应必需检查 check / Platform checks。
-
-各仓库自行声明触发事件与 required check。工作流分别负责自己的职责，源代码候选联调和实际镜像组合验证在各自仓库维护。
-
-## 开发约定
-
-工程脚本采用 Node.js ESM。Shell 仅连接短小命令，已有专业工具继续使用原生实现。直接执行的入口使用 shebang 和 Git 执行位，内部库与解释器调用脚本保持普通文件权限。
-
-工具版本使用不可变的 `vX.Y.Z` tag。工具测试、公共工作流验证和消费者验证通过后发行，不在消费者构建时跟踪工具默认分支。
-
-项目使用 AGPL-3.0-only，检查器起源于 StuHelper Next，保留本仓库的许可证与来源说明。
-
-应用镜像发行使用 `image.yml`，只接收 main 上的带注释版本 tag。调用仓库配置 release 环境、`OCI_REGISTRY` 与 Registry 凭据。镜像保留版本、源码、digest 与构建证明；工作流不执行生产部署。
-
-镜像工作流在 pull_request 与 pull_request_target 事件中跳过。私有发行使用 stuhelper-arc，公开发行使用独立的 stuhelper-arc-release 组和 stuhelper-arc-sh-release 标签。公开发行组只允许运维登记的不可变共享工作流，不挂载私有依赖缓存。
-
-StuHelper 自建 Kubernetes runner 通过 `BUILDKIT_HOST` 提供远端 BuildKit，发行使用 remote driver，无需本地 Docker daemon。BuildKit 由 runner 管理，版本与连接结果记录在作业日志；作业仅清理自己的 builder 注册，不停止服务或清理其他任务缓存。
-
-Registry 认证使用任务临时目录，清理目标来自创建步骤的明确输出。创建前失败或取消时不删除 runner 继承的 Docker 配置。
-
-应用附件发行使用 `release.yml`，接收 backend、web、admin 或 campus-adapters 以及 main 上既有的注释 tag。普通 runner 构建压缩包、许可证、构建来源与 SHA256SUMS，在对应版本的专用草稿中逐件上传并下载核对字节和 SHA256SUMS，全部通过后公开。重试复用一致的附件。已公开版本仅核验，内容冲突时中止。
-
-Go 构建使用 GOWORK=off、CGO_ENABLED=0 和仓库声明的工具链。backend 通过 modules-read-token 下载私有依赖。历史 tag 可由调用方 workflow_dispatch 指定，不移动源码 tag。附件永久保留，每个附件小于 2 GiB，不启用 Actions artifact 或共享缓存。
-
-campus-adapters 通过提供方 scripts/build-oracle-sync.sh 构建同步工具，注入 tag@完整源码 SHA。构建后以 --mode=version 回读核对，错误时停止发行。已存在批次保留原 source_version，新版本只影响后续生成的批次。
+对应版本的发行草稿按附件逐件上传并重新下载核对，全部通过后公开。重试复用内容相同的附件，已公开版本仅做核验。同名附件内容不一致时停止发行。
