@@ -1,5 +1,5 @@
 name: StuHelper check environment
-description: Install declared tools, preferring preinstalled tools on self-hosted runners.
+description: Install the repository toolchains and restore lockfile-scoped dependencies.
 inputs:
   node-version-file:
     description: Repository-relative Node version file
@@ -7,18 +7,95 @@ inputs:
   go-version-file:
     description: Optional repository-relative Go version file
     default: ''
+  go-cache-dependency-path:
+    description: Go dependency manifests used by the checked out modules
+    default: |
+      go.mod
+      go.sum
+  pnpm-cache-dependency-path:
+    description: pnpm lockfiles used by the checked out applications
+    default: pnpm-lock.yaml
   postgres:
-    description: Install or reuse PostgreSQL server and client meta-packages
+    description: Prepare PostgreSQL server and client meta-packages
     default: 'false'
 runs:
   using: composite
   steps:
-    - name: Prepare declared toolchains
+    - name: Select cache access and pnpm
+      id: policy
       shell: bash
       env:
-        NODE_VERSION_FILE: ${{ inputs.node-version-file }}
+        PRIVATE: ${{ github.event.repository.private }}
+      run: |
+        set -euo pipefail
+        access=off
+        if [[ "$PRIVATE" == false && "$RUNNER_ENVIRONMENT" == github-hosted ]] ||
+           [[ "$PRIVATE" == true && "$RUNNER_ENVIRONMENT" == self-hosted && "${STUHELPER_CACHE_READY:-}" == true ]]; then
+          access=read
+          if [[ "$GITHUB_EVENT_NAME" == push || "$GITHUB_EVENT_NAME" == workflow_dispatch ]] &&
+             [[ "$GITHUB_REF" == refs/heads/develop || "$GITHUB_REF" == refs/heads/main ]]; then
+            access=write
+          fi
+        fi
+        printf 'access=%s\n' "$access" >> "$GITHUB_OUTPUT"
+        spec=$(jq -er '.packageManager' package.json)
+        if [[ "$spec" =~ ^pnpm@[0-9]+\.[0-9]+\.[0-9]+\+sha(224|256|384|512)\.[0-9a-f]+$ ]]; then
+          echo 'pinned=true' >> "$GITHUB_OUTPUT"
+        elif [[ "$spec" =~ ^pnpm@([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+          expected=${BASH_REMATCH[1]}
+          if command -v pnpm >/dev/null && [[ "$(pnpm --version)" == "$expected" ]]; then
+            echo 'pnpm-installed=true' >> "$GITHUB_OUTPUT"
+          fi
+        else
+          echo 'Unsupported packageManager declaration' >&2
+          exit 1
+        fi
+    - name: Install pnpm with the repository digest
+      if: steps.policy.outputs.pinned == 'true'
+      shell: bash
+      run: bash "$GITHUB_ACTION_PATH/pinned-pnpm.sh"
+    - uses: pnpm/action-setup@v6.1.1
+      if: steps.policy.outputs.pinned != 'true' && steps.policy.outputs.pnpm-installed != 'true'
+    - uses: actions/setup-node@v7.1.0
+      with:
+        node-version-file: ${{ inputs.node-version-file }}
+        package-manager-cache: false
+        cache: ${{ steps.policy.outputs.access == 'write' && 'pnpm' || '' }}
+        cache-dependency-path: ${{ inputs.pnpm-cache-dependency-path }}
+    - uses: actions/setup-go@v7.1.0
+      if: inputs.go-version-file != ''
+      with:
+        go-version-file: ${{ inputs.go-version-file }}
+        cache: ${{ steps.policy.outputs.access == 'write' }}
+        cache-dependency-path: ${{ inputs.go-cache-dependency-path }}
+    - name: Resolve read-only cache paths
+      if: steps.policy.outputs.access == 'read'
+      id: paths
+      shell: bash
+      env:
         GO_VERSION_FILE: ${{ inputs.go-version-file }}
-      run: bash "$GITHUB_ACTION_PATH/arc-toolchains.sh"
+      run: |
+        set -euo pipefail
+        printf 'pnpm=%s\n' "$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+        printf 'image-os=%s\n' "${ImageOS:-}" >> "$GITHUB_OUTPUT"
+        printf 'arch=%s\n' "$(node -p 'process.arch')" >> "$GITHUB_OUTPUT"
+        if [[ -n "$GO_VERSION_FILE" ]]; then
+          printf 'go-version=%s\n' "$(cat "$GO_VERSION_FILE")" >> "$GITHUB_OUTPUT"
+          printf 'modules=%s\nbuild=%s\n' "$(go env GOMODCACHE)" "$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
+        fi
+    # Match the pinned setup actions' paths and key format, without their save post-step.
+    - uses: actions/cache/restore@v6.1.0
+      if: steps.policy.outputs.access == 'read'
+      with:
+        path: ${{ steps.paths.outputs.pnpm }}
+        key: node-cache-${{ runner.os }}-${{ steps.paths.outputs.arch }}-pnpm-${{ hashFiles(inputs.pnpm-cache-dependency-path) }}
+    - uses: actions/cache/restore@v6.1.0
+      if: steps.policy.outputs.access == 'read' && inputs.go-version-file != ''
+      with:
+        path: |
+          ${{ steps.paths.outputs.modules }}
+          ${{ steps.paths.outputs.build }}
+        key: setup-go-${{ runner.os }}-${{ steps.paths.outputs.arch }}-${{ steps.paths.outputs.image-os }}-go-${{ steps.paths.outputs.go-version }}-${{ hashFiles(inputs.go-cache-dependency-path) }}
     - name: Install actionlint
       shell: bash
       run: bash "$GITHUB_ACTION_PATH/actionlint.sh"
