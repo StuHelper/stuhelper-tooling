@@ -13,16 +13,18 @@ export function flatten(value, prefix = '', output = {}) {
   }
   return output;
 }
+const pluralOrder = ['zero', 'one', 'two', 'few', 'many', 'other'];
+const pluralForms = value => value.replace(/\{\s*(['"])\|\1\s*\}/g, '\0').split('|').map(form => form.replaceAll('\0', "{'|'}"));
+const placeholders = value => [...new Set([...value.replace(/\{\s*(['"])\|\1\s*\}/g, '').matchAll(/\{\s*([\w]+)\s*\}/g)].map(match => match[1]))].sort();
 export function validateCatalogues(catalogues, languages, exceptions = {}) {
   assert.deepEqual(Object.keys(catalogues).sort(), [...languages].sort(), 'Locale catalogues must cover every configured language');
+  const pluralKeys = new Set(Object.values(catalogues).flatMap(catalogue => Object.entries(flatten(catalogue)).filter(([, value]) => pluralForms(value).length > 1).map(([key]) => key)));
   const baseline = flatten(catalogues['zh-CN']);
   const english = catalogues['en-US'] ? flatten(catalogues['en-US']) : {};
   for (const allowed of [exceptions.shared ?? {}, ...Object.values(exceptions.languages ?? {})]) for (const [key, rule] of Object.entries(allowed)) {
     assert(Object.hasOwn(english, key), `Unknown same-text exception: ${key}`);
     assert(typeof rule.value === 'string' && rule.reason?.trim(), `Same-text exception needs a value and reason: ${key}`);
   }
-  const pluralKeys = new Set(Object.values(catalogues).flatMap(catalogue => Object.entries(flatten(catalogue)).filter(([, value]) => value.includes('|')).map(([key]) => key)));
-  const placeholders = value => [...new Set([...value.matchAll(/\{\s*([\w]+)\s*\}/g)].map(match => match[1]))].sort();
   for (const language of languages) {
     const entries = flatten(catalogues[language]);
     assert.deepEqual(Object.keys(entries).sort(), Object.keys(baseline).sort(), `Missing or extra message in ${language}`);
@@ -31,15 +33,88 @@ export function validateCatalogues(catalogues, languages, exceptions = {}) {
         const rule = exceptions.languages?.[language]?.[key] ?? exceptions.shared?.[key];
         assert(rule?.value === value, `Unreviewed English text: ${language}/${key}`);
       }
-      assert.deepEqual(placeholders(value), placeholders(baseline[key]), `Interpolation mismatch: ${language}/${key}`);
-      if (pluralKeys.has(key)) {
-        const expected = new Intl.PluralRules(language).resolvedOptions().pluralCategories.length;
-        assert.equal(value.split('|').length, expected, `Plural categories incomplete: ${language}/${key}`);
-        for (const form of value.split('|')) assert.deepEqual(placeholders(form), placeholders(value), `Missing plural interpolation: ${language}/${key}`);
+      if (!pluralKeys.has(key)) {
+        assert.deepEqual(placeholders(value), placeholders(baseline[key]), `Interpolation mismatch: ${language}/${key}`);
+      } else {
+        const baseVars = placeholders(baseline[key]);
+        const baseSet = new Set(baseVars);
+        const categories = pluralOrder.filter(category => new Intl.PluralRules(language).resolvedOptions().pluralCategories.includes(category));
+        const forms = pluralForms(value);
+        assert.equal(forms.length, categories.length, `Plural categories incomplete: ${language}/${key}`);
+        for (const [index, form] of forms.entries()) {
+          assert(form.trim(), `Empty or non-text message: ${language}/${key}`);
+          const formVars = placeholders(form);
+          for (const variable of formVars) assert(baseSet.has(variable), `Interpolation mismatch: ${language}/${key}`);
+          if (categories[index] === 'many' || categories[index] === 'other') {
+            assert.deepEqual(formVars, baseVars, `Missing plural interpolation: ${language}/${key}`);
+          }
+        }
       }
     }
   }
   return Object.keys(baseline).length;
+}
+function stripScriptComments(code) {
+  const output = [];
+  const templateBraces = [];
+  let mode = 'code';
+  for (let i = 0; i < code.length; i += 1) {
+    const ch = code[i];
+    const next = code[i + 1];
+    if (mode === 'line-comment') {
+      if (ch === '\n' || ch === '\r') { mode = 'code'; output.push(ch); }
+      else output.push(' ');
+    } else if (mode === 'block-comment') {
+      if (ch === '*' && next === '/') { mode = 'code'; output.push('  '); i += 1; }
+      else output.push(ch === '\n' || ch === '\r' ? ch : ' ');
+    } else if (mode === "'" || mode === '"') {
+      output.push(ch);
+      if (ch === '\\' && i + 1 < code.length) { output.push(next); i += 1; }
+      else if (ch === mode) mode = 'code';
+    } else if (mode === '`') {
+      output.push(ch);
+      if (ch === '\\' && i + 1 < code.length) { output.push(next); i += 1; }
+      else if (ch === '$' && next === '{') { output.push(next); i += 1; templateBraces.push(0); mode = 'code'; }
+      else if (ch === '`') mode = 'code';
+    } else if (ch === '/' && next === '/') {
+      mode = 'line-comment'; output.push('  '); i += 1;
+    } else if (ch === '/' && next === '*') {
+      mode = 'block-comment'; output.push('  '); i += 1;
+    } else {
+      output.push(ch);
+      if (ch === "'" || ch === '"' || ch === '`') mode = ch;
+      else if (templateBraces.length) {
+        if (ch === '{') templateBraces[templateBraces.length - 1] += 1;
+        else if (ch === '}') {
+          if (templateBraces[templateBraces.length - 1] === 0) { templateBraces.pop(); mode = '`'; }
+          else templateBraces[templateBraces.length - 1] -= 1;
+        }
+      }
+    }
+  }
+  return output.join('');
+}
+export function stripSourceComments(source, isVue = false) {
+  if (!isVue) return stripScriptComments(source);
+  const withoutHtmlComments = source.replace(/<!--[\s\S]*?-->/g, match => match.replace(/[^\r\n]/g, ' '));
+  return withoutHtmlComments
+    .replace(/(<script\b[^>]*>)([\s\S]*?)(<\/script>)/gi, (_, open, body, close) => `${open}${stripScriptComments(body)}${close}`)
+    .replace(/\{\{[\s\S]*?\}\}/g, block => stripScriptComments(block));
+}
+export function extractMessageKeys(source, { isVue = false, admin = false } = {}) {
+  const cleaned = stripSourceComments(source, isVue);
+  const calls = [
+    ...[...cleaned.matchAll(/\b\$?t\(\s*(['"])([^'"\r\n]+)\1/g)].map(match => match[2]),
+    ...[...cleaned.matchAll(/\b\$?t\(\s*`([\w.-]+)`\s*[,)]/g)].map(match => match[1]),
+  ];
+  const components = isVue ? [
+    ...[...cleaned.matchAll(/<(?:i18n-t|I18nT)\b[^>]*?\s(?<!:|v-bind:)keypath\s*=\s*(['"])([^'"\r\n]+)\1/g)].map(match => match[2]),
+    ...[...cleaned.matchAll(/<(?:i18n-t|I18nT)\b[^>]*?\s(?::|v-bind:)keypath\s*=\s*(?:"'([^'"\r\n]+)'"|'"([^'"\r\n]+)"'|["']`([\w.-]+)`["'])/g)].map(match => match[1] ?? match[2] ?? match[3]),
+    ...[...cleaned.matchAll(/\bv-t\s*=\s*(?:"'([^'"\r\n]+)'"|'"([^'"\r\n]+)"'|["']`([\w.-]+)`["'])/g)].map(match => match[1] ?? match[2] ?? match[3]),
+    ...[...cleaned.matchAll(/\bv-t\s*=\s*(['"])(\{[\s\S]*?\})\1/g)].flatMap(match => [...match[2].matchAll(/\bpath\s*:\s*(['"`])([\w.-]+)\1/g)].map(inner => inner[2])),
+  ] : [];
+  const metadata = admin ? [...cleaned.matchAll(/['"]((?:page|common|authentication|preferences|ui|profile)\.[\w.]+)['"]/g)].map(match => match[1]) : [];
+  return [...calls, ...components, ...metadata];
 }
 function files(directory) {
   return fs.readdirSync(directory, { withFileTypes: true }).flatMap(entry => entry.isDirectory() ? files(path.join(directory, entry.name)) : [path.join(directory, entry.name)]);
@@ -63,9 +138,9 @@ export function check(directory) {
   for (const file of files(path.join(directory, admin ? 'apps/web-antd/src' : 'src'))) {
     if (!/\.(vue|ts)$/.test(file) || /\.(test|gen)\.ts$/.test(file)) continue;
     const text = fs.readFileSync(file, 'utf8');
-    const calls = [...text.matchAll(/\b\$?t\(\s*['"]([^'"]+)['"]/g)].map(match => match[1]);
-    const metadata = admin ? [...text.matchAll(/['"]((?:page|common|authentication|preferences|ui|profile)\.[\w.]+)['"]/g)].map(match => match[1]) : [];
-    for (const key of [...calls, ...metadata]) assert(Object.hasOwn(known, key), `Unknown message key: ${path.relative(directory, file)} -> ${key}`);
+    for (const key of extractMessageKeys(text, { isVue: file.endsWith('.vue'), admin })) {
+      assert(Object.hasOwn(known, key), `Unknown message key: ${path.relative(directory, file)} -> ${key}`);
+    }
   }
   assert.equal(policy.default, 'zh-CN');
   for (const locale of languages) {
