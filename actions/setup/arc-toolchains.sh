@@ -22,8 +22,8 @@ if ! command -v node >/dev/null || [[ "$(node --version)" != "v$node_version" ]]
   archive="node-v$node_version-linux-$node_arch.tar.xz"
   source="https://nodejs.org/dist/v$node_version"
   bash "$action_path/download.sh" "$source/SHASUMS256.txt" "$directory/node-checksums.txt"
-  curl --fail --silent --show-error --location --retry 3 --retry-all-errors --connect-timeout 15 --max-time 30 --head "$source/$archive" > "$directory/node-headers"
-  size=$(awk 'tolower($1) == "content-length:" {gsub("\r", "", $2); value=$2} END {print value}' "$directory/node-headers")
+  curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' --tlsv1.2 --retry 3 --retry-all-errors --connect-timeout 15 --max-time 30 --head "$source/$archive" > "$directory/node-headers"
+  size=$(awk '/^HTTP\// { value = "" } tolower($1) == "content-length:" {gsub("\r", "", $2); value=$2} END {print value}' "$directory/node-headers")
   bash "$action_path/download-ranged.sh" "$source/$archive" "$directory/$archive" "$size"
   (cd "$directory" && awk -v archive="$archive" '$2 == archive {print; found++} END {if (found != 1) exit 1}' node-checksums.txt > node.sha256 && sha256sum --check node.sha256)
   tar -xJf "$directory/$archive" -C "$directory"
@@ -32,20 +32,27 @@ if ! command -v node >/dev/null || [[ "$(node --version)" != "v$node_version" ]]
 fi
 test "$(node --version)" = "v$node_version"
 
-pnpm_version=$(node --input-type=module -e 'import fs from "node:fs"; const value = JSON.parse(fs.readFileSync("package.json", "utf8")).packageManager; const match = /^pnpm@(\d+\.\d+\.\d+)(?:\+sha(?:224|256|384|512)\.[a-f0-9]+)?$/.exec(value); if (!match) process.exit(1); console.log(match[1]);')
-if ! command -v pnpm >/dev/null || [[ "$(pnpm --version)" != "$pnpm_version" ]]; then
+pnpm_spec=$(node --input-type=module -e 'import fs from "node:fs"; const value = JSON.parse(fs.readFileSync("package.json", "utf8")).packageManager; const match = /^pnpm@(\d+\.\d+\.\d+)(?:\+sha(?:224|256|384|512)\.[a-f0-9]+)?$/.exec(value); if (!match) process.exit(1); console.log(value.slice(5));')
+pnpm_version=${pnpm_spec%%+*}
+if [[ "$pnpm_spec" == *+* ]] || ! command -v pnpm >/dev/null || [[ "$(pnpm --version)" != "$pnpm_version" ]]; then
   # npm's integrity metadata is fetched from the official registry, independent
   # of any runner-wide mirror. Verify it before executing package code.
   bash "$action_path/download.sh" "https://registry.npmjs.org/pnpm/$pnpm_version" "$directory/pnpm.json"
   bash "$action_path/download.sh" "https://registry.npmjs.org/pnpm/-/pnpm-$pnpm_version.tgz" "$directory/pnpm.tgz"
-  node --input-type=module - "$directory" <<'NODE'
+  node --input-type=module - "$directory" "$pnpm_spec" <<'NODE'
 import fs from 'node:fs';
 import { createHash } from 'node:crypto';
 const root = process.argv[2];
 const { dist } = JSON.parse(fs.readFileSync(`${root}/pnpm.json`, 'utf8'));
 if (typeof dist?.integrity !== 'string' || !dist.integrity.startsWith('sha512-')) throw new Error('Missing pnpm SHA-512');
-const actual = `sha512-${createHash('sha512').update(fs.readFileSync(`${root}/pnpm.tgz`)).digest('base64')}`;
+const archive = fs.readFileSync(`${root}/pnpm.tgz`);
+const actual = `sha512-${createHash('sha512').update(archive).digest('base64')}`;
 if (actual !== dist.integrity) throw new Error('pnpm integrity mismatch');
+const pin = process.argv[3].split('+')[1];
+if (pin) {
+  const [algorithm, expected] = pin.split('.');
+  if (createHash(algorithm).update(archive).digest('hex') !== expected) throw new Error('pnpm packageManager digest mismatch');
+}
 NODE
   mkdir "$directory/pnpm"
   tar -xzf "$directory/pnpm.tgz" --strip-components=1 -C "$directory/pnpm"

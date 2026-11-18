@@ -3,13 +3,16 @@
 set -euo pipefail
 test "$#" -eq 3
 url=$1
+transport=(--proto '=https' --proto-redir '=https' --tlsv1.2)
+if [[ "$url" == http://127.0.0.1:* ]]; then transport=(--proto '=http' --proto-redir '=https'); fi
 destination=$2
 size=$3
-[[ "$size" =~ ^[0-9]+$ ]] && (( size > 0 && size <= 268435456 ))
+[[ "$size" =~ ^[0-9]+$ ]]
+(( size > 0 && size <= 268435456 ))
 test ! -e "$destination"
 directory=$(mktemp -d "${destination}.parts.XXXXXX")
 trap 'rm -rf -- "$directory"' EXIT
-options=(--fail --silent --show-error --location --connect-timeout 15)
+options=(--fail --silent --show-error --location "${transport[@]}" --connect-timeout 15)
 arguments=()
 chunk_size=$(( (size + 3) / 4 ))
 for part in 0 1 2 3; do

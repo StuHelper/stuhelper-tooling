@@ -34,7 +34,7 @@ setup 不再嵌套 setup-node、setup-go 或 pnpm action，避免 ARC 下载实�
 
 Node 从 nodejs.org 获取并核验官方 SHA-256；Go 从官方分发站获取并核验 go.dev 元数据中的 SHA-256。大文件分四段并行下载，每段最多三次请求，每次最多十分钟，重组后检查长度和摘要。传输失败不留下完整文件。
 
-pnpm 从 registry.npmjs.org 获取并核验 SHA-512。actionlint 使用固定发行的官方 SHA-256。PostgreSQL 优先复用预装元包，缺失时从官方 PGDG 稳定源安装，通过固定摘要核验源密钥，再由 APT 核验签名元数据与包摘要。
+工具下载只接受 HTTPS 重定向。pnpm 从 registry.npmjs.org 获取并核验 SHA-512。packageManager 固定摘要时，另按声明算法核验原始压缩包后使用。actionlint 使用固定发行的官方 SHA-256。PostgreSQL 优先复用预装元包，缺失时从官方 PGDG 稳定源安装，通过固定摘要核验源密钥，再由 APT 核验签名元数据与包摘要。
 
 预装工具来自已核验的 runner 镜像。此版本的引导目录仅存活于当前临时 runner，不上传 GitHub 缓存。持久缓存由私有基础设施独立维护，公开仓库不挂载私有缓存。
 
