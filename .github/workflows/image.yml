@@ -78,6 +78,7 @@ jobs:
             echo 'Release image already exists; choose a new version.' >&2
             exit 1
           elif ! [[ "$(cat "$RUNNER_TEMP/image-existence.log")" =~ (manifest[[:space:]]unknown|not[[:space:]]found) ]]; then
+            cat "$RUNNER_TEMP/image-existence.log" >&2
             echo 'Cannot confirm that the release image is absent.' >&2
             exit 1
           fi
@@ -101,4 +102,4 @@ jobs:
         env:
           AUTH_DIRECTORY: ${{ steps.runtime.outputs.auth-directory }}
         shell: bash
-        run: test -z "$AUTH_DIRECTORY" || rm -rf -- "$AUTH_DIRECTORY"
+        run: test -z "$AUTH_DIRECTORY" || rm -f -- "$AUTH_DIRECTORY/config.json"
