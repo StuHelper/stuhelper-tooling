@@ -25,8 +25,10 @@
     "stuhelper-check": "bin/stuhelper-check.mjs"
   },
   "exports": {
+    "./contracts": "./src/contracts.mjs",
     "./docs": "./src/docs/check-docs.mjs",
-    "./i18n": "./src/i18n/check-i18n.mjs"
+    "./i18n": "./src/i18n/check-i18n.mjs",
+    "./presets/frontend-eslint": "./presets/frontend-eslint.mjs"
   },
   "dependencies": {
     "github-slugger": "2.0.0",

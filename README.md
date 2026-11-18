@@ -9,14 +9,17 @@
 | 命令 | 检查范围 |
 | --- | --- |
 | `repository` | 跟踪文件、JSON/YAML 语法、私有材料文件名和脚本执行权限 |
+| `contracts` | 生成文件（`*.gen.*`）头部完整性、`contracts/*.source.json` 摘要核对与防手工直改 |
 | `docs` | Markdown、元信息、日期、索引、链接和可选项目术语 |
 | `i18n` | 仓库内 locale-policy.yaml 声明的语言、消息与格式 |
 | `locale-policy --write` | 从 YAML 生成前端运行时需要的 JSON 快照；省略 --write 时只核对 |
-| `staged` | 暂存区快照的快速检查，保留未暂存内容 |
-| `staged --eslint` | 另对暂存的前端文件运行仓库自己的 ESLint |
+| `staged` | 暂存区快照的快速检查（联动文档、i18n、契约），保留未暂存内容 |
+| `staged --eslint` | 另对暂存的前端文件运行仓库自己的 ESLint（支持 `--glossary` 透传） |
 | `workflows` | actionlint 验证 GitHub 工作流 |
 
 检查默认只读。非零退出码表示失败，GitHub 环境增加文件注解和结果摘要。暂存区检查只使用已安装依赖，不执行安装、构建或网络请求。
+
+前端仓库可使用 `presets/lefthook-frontend.yml` 启用 `staged --eslint`，并通过 `@stuhelper/engineering-tools/presets/frontend-eslint` 接入统一的 Vue 可访问名称、键盘交互、禁止硬编码界面文案与重复 JSON 键规则。
 
 ```bash
 pnpm install --frozen-lockfile
