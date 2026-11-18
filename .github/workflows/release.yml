@@ -23,7 +23,33 @@ jobs:
       CGO_ENABLED: '0'
       LEFTHOOK: '0'
     steps:
-      - uses: StuHelper/stuhelper-tooling/actions/release-assets@v0.1.11
+      - uses: actions/checkout@v7.0.1
         with:
+          ref: ${{ inputs.version }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Resolve this workflow's tooling revision
+        id: tooling
+        shell: bash
+        env:
+          WORKFLOW_JOB: ${{ toJSON(job) }}
+        run: |
+          set -euo pipefail
+          test ! -e .stuhelper-release-tools
+          test ! -L .stuhelper-release-tools
+          repository=$(jq -er '.workflow_repository | select(test("^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"))' <<< "$WORKFLOW_JOB")
+          sha=$(jq -er '.workflow_sha | select(test("^[0-9a-f]{40}$"))' <<< "$WORKFLOW_JOB")
+          printf 'repository=%s\nsha=%s\n' "$repository" "$sha" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v7.0.1
+        with:
+          repository: ${{ steps.tooling.outputs.repository }}
+          ref: ${{ steps.tooling.outputs.sha }}
+          path: .stuhelper-release-tools
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: /actions/release-assets/
+      - uses: ./.stuhelper-release-tools/actions/release-assets
+        with:
+          source-checked-out: 'true'
           application: ${{ inputs.application }}
           version: ${{ inputs.version }}

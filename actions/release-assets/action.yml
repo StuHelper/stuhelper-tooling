@@ -7,6 +7,9 @@ inputs:
   version:
     description: Release tag
     default: ''
+  source-checked-out:
+    description: Use the source tag already checked out by the release workflow
+    default: 'false'
   modules-read-token:
     description: Private module read token
     default: ''
@@ -14,6 +17,7 @@ runs:
   using: composite
   steps:
     - uses: actions/checkout@v7.0.1
+      if: inputs.source-checked-out != 'true'
       with:
         ref: ${{ inputs.version }}
         fetch-depth: 0
@@ -59,10 +63,14 @@ runs:
               test "$name" != backend || name=stuhelper-backend
               go build -mod=readonly -trimpath -ldflags='-s -w' -o "$payload/$name" "./$directory"
             done
+            [[ -f "$payload/stuhelper-backend" && -s "$payload/stuhelper-backend" && -x "$payload/stuhelper-backend" ]] || { echo "Missing backend executable" >&2; exit 1; }
             ;;
           campus-adapters)
             python3 scripts/prepare-oracle-driver.py
-            bash scripts/build-oracle-sync.sh "$payload/stuhelper-oracle-sync" "$VERSION@$(git rev-parse HEAD)"
+            expected="$VERSION@$(git rev-parse HEAD)"
+            bash scripts/build-oracle-sync.sh "$payload/stuhelper-oracle-sync" "$expected"
+            "$payload/stuhelper-oracle-sync" --mode=version |
+              jq -se --arg expected "$expected" 'length == 1 and .[0].source_version == $expected' > /dev/null
             ;;
           web|admin)
             pnpm install --frozen-lockfile
@@ -70,6 +78,7 @@ runs:
             pnpm run build
             directory=dist
             if test "$APPLICATION" = admin; then directory=apps/web-antd/dist; fi
+            [[ -f "$directory/index.html" && -s "$directory/index.html" ]] || { echo "Missing $directory/index.html" >&2; exit 1; }
             cp -a "$directory/." "$payload/"
             ;;
         esac

@@ -31,3 +31,7 @@ pnpm exec lefthook install
 公开 Linux 检查使用 `node-checks.yml` 或 `go-checks.yml`，私有仓使用同名的 `-private.yml`。检查名称由调用方指定。发行工作流也按此约定选择。公开应用镜像由托管 runner 推送 GHCR，私有应用使用站点提供的 BuildKit。
 
 前端通过 `actions/frontend-cache` 复用 Vite 与 TypeScript 的中间文件。安装锁定依赖后调用 `actions/chromium`，按锁文件复用 Chromium，并在每台托管 runner 上准备系统库。Go 正式检查使用 `GOWORK=off`。
+
+### 发行文件检查
+
+调用方通过可复用工作流的版本选择发行实现。工作流按自身源码提交检出同版本的构建 action。打包前校验 backend 的可执行入口、Web 与 Admin 的非空页面入口，以及校园同步工具输出的唯一版本记录。
