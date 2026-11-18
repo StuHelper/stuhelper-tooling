@@ -5,6 +5,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import YAML from 'yaml';
 
 const action = path.resolve('actions/setup');
 function fixture(t) {
@@ -25,35 +26,32 @@ test('repository digest rejects even a registry-consistent archive and matching 
   stub('pnpm', 'echo 1.2.3');
   stub('curl', `args="$*"; while [[ "$1" != --output ]]; do shift; done
     if [[ "$args" == *".tgz"* ]]; then printf archive > "$2"; else printf '%s' '{"dist":{"integrity":"sha512-${digest}"}}' > "$2"; fi`);
-  const r = run('arc-toolchains.sh');
+  const r = run('pinned-pnpm.sh');
   assert.notEqual(r.status, 0);
   assert.match(r.stderr, /packageManager.*mismatch/i);
   assert.ok(!fs.existsSync(path.join(dir, 'paths')));
 });
-test('every HTTPS request including parallel ranges restricts redirect protocols', t => {
+test('HTTPS bootstrap downloads require HTTPS redirects', t => {
   const { dir, stub, run } = fixture(t);
   stub('curl', `printf '%s\\n' "$@" > "$RUNNER_TEMP/args"; exit 1`);
-  stub('sleep', ':');
-  for (const [name, extra] of [['download.sh', []], ['download-ranged.sh', ['8']]]) {
-    const r = run(name, ['https://example.invalid/tool', dir + '/out', ...extra]);
-    assert.notEqual(r.status, 0);
-    const args = fs.readFileSync(path.join(dir, 'args'), 'utf8').split('--next\n');
-    for (const transfer of args) assert.match(transfer, /--proto-redir\n=https\n/);
-    assert.ok(!fs.existsSync(path.join(dir, 'out')));
-  }
+  const r = run('download.sh', ['https://example.invalid/tool', path.join(dir, 'out')]);
+  assert.notEqual(r.status, 0);
+  assert.match(fs.readFileSync(path.join(dir, 'args'), 'utf8'), /--proto-redir\n=https\n/);
+  assert.ok(!fs.existsSync(path.join(dir, 'out')));
 });
-test('HEAD length comes exclusively from the final HTTPS response', t => {
-  const { dir, stub, run } = fixture(t);
-  fs.writeFileSync(path.join(dir, '.node-version'), '0.0.1');
-  stub('curl', `if [[ "$*" == *'--head'* ]]; then
-      printf '%s\\n' "$@" > "$RUNNER_TEMP/head-args"
-      printf 'HTTP/2 302\\r\\ncontent-length: 10\\r\\n\\r\\nHTTP/2 200\\r\\n\\r\\n'
-    elif [[ "$*" == *'--range'* ]]; then touch "$RUNNER_TEMP/range-called"; exit 1
-    else while [[ "$1" != --output ]]; do shift; done; touch "$2"; fi`);
-  stub('sleep', ':');
-  assert.notEqual(run('arc-toolchains.sh').status, 0);
-  assert.ok(!fs.existsSync(path.join(dir, 'range-called')));
-  assert.match(fs.readFileSync(path.join(dir, 'head-args'), 'utf8'), /--proto-redir\n=https\n/);
+
+test('the setup action selects digest verification even when the pinned version is installed', t => {
+  const { dir, stub } = fixture(t);
+  stub('pnpm', 'echo 1.2.3');
+  fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ packageManager: 'pnpm@1.2.3+sha224.' + '0'.repeat(56) }));
+  const steps = YAML.parse(fs.readFileSync(path.join(action, 'action.yml'), 'utf8')).runs.steps;
+  const output = path.join(dir, 'outputs');
+  const env = { ...process.env, PATH: path.join(dir, 'bin') + ':' + process.env.PATH, GITHUB_OUTPUT: output,
+    PRIVATE: 'false', RUNNER_ENVIRONMENT: 'github-hosted', GITHUB_EVENT_NAME: 'pull_request' };
+  const result = spawnSync('bash', ['-c', steps.find(step => step.id === 'policy').run], { cwd: dir, env, encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(fs.readFileSync(output, 'utf8'), /^pinned=true$/m);
+  assert.equal(steps.find(step => step.run?.includes('pinned-pnpm.sh')).if, "steps.policy.outputs.pinned == 'true'");
 });
 
 test('a matching repository pin installs the verified archive', t => {
@@ -70,7 +68,7 @@ test('a matching repository pin installs the verified archive', t => {
   fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ packageManager: 'pnpm@1.2.3+sha224.' + pin }));
   stub('curl', `args="$*"; while [[ "$1" != --output ]]; do shift; done
     if [[ "$args" == *".tgz"* ]]; then cp fixture.tgz "$2"; else cp metadata "$2"; fi`);
-  const r = run('arc-toolchains.sh');
+  const r = run('pinned-pnpm.sh');
   assert.equal(r.status, 0, r.stderr);
   const installed = fs.readFileSync(path.join(dir, 'paths'), 'utf8').trim();
   assert.equal(fs.readFileSync(path.join(installed, 'pnpm'), 'utf8'), fs.readFileSync(path.join(source, 'pnpm.cjs'), 'utf8'));

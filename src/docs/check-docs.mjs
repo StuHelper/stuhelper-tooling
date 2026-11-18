@@ -96,30 +96,30 @@ function parsedFile(file, siteDocument) {
   return { source, frontmatter, anchors, githubAnchors, links, prose, paragraphs, headings, scenarios, tableRows };
 }
 
-const gitText = (root, ...args) => execFileSync('git', ['-C', root, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+const gitText = (root, env, ...args) => execFileSync('git', ['-C', root, ...args], { env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
 const shanghaiDate = date => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit', numberingSystem: 'latn' }).format(new Date(date));
 const withoutUpdated = source => source.replace(/^updated:.*$/m, '').trim();
-function contentDate(root, relative) {
-  for (const entry of gitText(root, 'log', '--format=%H %cI', '--', relative).split('\n')) {
+function contentDate(root, relative, env) {
+  for (const entry of gitText(root, env, 'log', '--format=%H %cI', '--', relative).split('\n')) {
     const [revision, date] = entry.split(' ');
-    const current = gitText(root, 'show', `${revision}:${relative}`);
+    const current = gitText(root, env, 'show', `${revision}:${relative}`);
     let previous = '';
-    try { previous = gitText(root, 'show', `${revision}^:${relative}`); } catch { /* New file. */ }
+    try { previous = gitText(root, env, 'show', `${revision}^:${relative}`); } catch { /* New file. */ }
     if (withoutUpdated(current) !== withoutUpdated(previous)) return shanghaiDate(date);
   }
   throw new Error(`Cannot determine the content date of ${relative}`);
 }
-function changedDates(root, files, requestedBase, now) {
+function changedDates(root, files, requestedBase, now, env) {
   let base = requestedBase;
-  try { if (fs.realpathSync(gitText(root, 'rev-parse', '--show-toplevel')) !== root) return new Map(); }
+  try { if (fs.realpathSync(gitText(root, env, 'rev-parse', '--show-toplevel')) !== root) return new Map(); }
   catch { return new Map(); }
   if (!base) {
-    try { gitText(root, 'rev-parse', '--verify', 'origin/develop'); base = 'origin/develop'; }
+    try { gitText(root, env, 'rev-parse', '--verify', 'origin/develop'); base = 'origin/develop'; }
     catch { base = 'HEAD'; }
   }
   if (/^0+$/.test(base)) base = null;
   if (base) {
-    try { gitText(root, 'rev-parse', '--verify', `${base}^{commit}`); }
+    try { gitText(root, env, 'rev-parse', '--verify', `${base}^{commit}`); }
     catch { if (base === 'HEAD' && !requestedBase) base = null; else throw new Error(`Invalid documentation base: ${base}`); }
   }
   const dates = new Map();
@@ -128,19 +128,19 @@ function changedDates(root, files, requestedBase, now) {
     if (!relative.startsWith('docs/') || path.basename(file) === 'TEMPLATE.md') continue;
     const current = fs.readFileSync(file, 'utf8');
     let previous = '';
-    try { if (base) previous = gitText(root, 'show', `${base}:${relative}`); } catch { /* New topic. */ }
+    try { if (base) previous = gitText(root, env, 'show', `${base}:${relative}`); } catch { /* New topic. */ }
     if (current.trim() === previous) continue;
     let committed = '';
-    try { committed = gitText(root, 'show', `HEAD:${relative}`); } catch { /* New uncommitted topic. */ }
+    try { committed = gitText(root, env, 'show', `HEAD:${relative}`); } catch { /* New uncommitted topic. */ }
     const date = withoutUpdated(current) !== withoutUpdated(committed)
       ? shanghaiDate(now)
-      : contentDate(root, relative);
+      : contentDate(root, relative, env);
     dates.set(file, date);
   }
   return dates;
 }
 
-export function checkDocs(directory, { base = process.env.DOCS_BASE_REF, now = Date.now(), glossary: suppliedGlossary } = {}) {
+export function checkDocs(directory, { base = process.env.DOCS_BASE_REF, now = Date.now(), glossary: suppliedGlossary, env = process.env } = {}) {
   const root = fs.realpathSync(directory);
   const errors = [];
   const cache = new Map();
@@ -151,7 +151,7 @@ export function checkDocs(directory, { base = process.env.DOCS_BASE_REF, now = D
   const files = filesIn(root);
   const ownGlossary = path.join(root, 'docs/spec/terminology.md');
   const glossary = suppliedGlossary ? path.resolve(root, suppliedGlossary) : ownGlossary;
-  const requiredDates = changedDates(root, files, base, now);
+  const requiredDates = changedDates(root, files, base, now, env);
   const today = shanghaiDate(now);
   const scenarioOwners = new Map();
   const adrOwners = new Map();
@@ -245,8 +245,20 @@ export function checkDocs(directory, { base = process.env.DOCS_BASE_REF, now = D
       if (!listed.has(file)) errors.push(`${posix(path.relative(root, index))}: missing topic ${path.basename(file)}`);
     }
   }
-  if (/^nav:/m.test(siteConfig)) {
-    const navigation = new Set([...siteConfig.matchAll(/^\s*-\s+[^:\n]+:\s+([\w./-]+\.md)\s*$/gm)].map(match => match[1]));
+  const nav = siteConfig && parseYaml(siteConfig, { logLevel: 'silent' })?.nav;
+  if (nav) {
+    const navigation = new Set();
+    function visit(item) {
+      if (typeof item === 'string') {
+        if (/^[a-z][\w+.-]*:|^\/\//i.test(item)) return;
+        const target = item.split(/[?#]/)[0];
+        if (/\.md$/i.test(target)) navigation.add(path.posix.normalize(target));
+      } else if (item && typeof item === 'object') Object.values(item).forEach(visit);
+    }
+    visit(nav);
+    for (const target of navigation) {
+      if (!fs.existsSync(path.join(root, 'docs', target))) errors.push(`mkdocs.yml: missing navigation target ${target}`);
+    }
     for (const file of files.filter(file => posix(path.relative(root, file)).startsWith('docs/'))) {
       const target = posix(path.relative(path.join(root, 'docs'), file));
       if (!navigation.has(target)) errors.push(`mkdocs.yml: missing navigation ${target}`);
