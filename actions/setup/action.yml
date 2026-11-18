@@ -38,12 +38,24 @@ runs:
           fi
         fi
         printf 'access=%s\n' "$access" >> "$GITHUB_OUTPUT"
-        expected=$(jq -er '.packageManager | capture("^pnpm@(?<v>[0-9]+\\.[0-9]+\\.[0-9]+)(\\+.*)?$").v' package.json)
-        if command -v pnpm >/dev/null && [[ "$(pnpm --version)" == "$expected" ]]; then
-          echo 'pnpm-installed=true' >> "$GITHUB_OUTPUT"
+        spec=$(jq -er '.packageManager' package.json)
+        if [[ "$spec" =~ ^pnpm@[0-9]+\.[0-9]+\.[0-9]+\+sha(224|256|384|512)\.[0-9a-f]+$ ]]; then
+          echo 'pinned=true' >> "$GITHUB_OUTPUT"
+        elif [[ "$spec" =~ ^pnpm@([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+          expected=${BASH_REMATCH[1]}
+          if command -v pnpm >/dev/null && [[ "$(pnpm --version)" == "$expected" ]]; then
+            echo 'pnpm-installed=true' >> "$GITHUB_OUTPUT"
+          fi
+        else
+          echo 'Unsupported packageManager declaration' >&2
+          exit 1
         fi
+    - name: Install pnpm with the repository digest
+      if: steps.policy.outputs.pinned == 'true'
+      shell: bash
+      run: bash "$GITHUB_ACTION_PATH/pinned-pnpm.sh"
     - uses: pnpm/action-setup@v6.1.1
-      if: steps.policy.outputs.pnpm-installed != 'true'
+      if: steps.policy.outputs.pinned != 'true' && steps.policy.outputs.pnpm-installed != 'true'
     - uses: actions/setup-node@v7.1.0
       with:
         node-version-file: ${{ inputs.node-version-file }}
