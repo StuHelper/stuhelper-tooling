@@ -86,3 +86,15 @@ test('hook Git environment does not override snapshot history for doc dates', as
   assert.equal(r.status, 1);
   assert.match(r.stderr, /updated 必须不早于/);
 });
+
+test('a deleted topic cannot remain solely in the site navigation', async t => {
+  const { root, git } = repository(t);
+  fs.writeFileSync(path.join(root, '.markdownlint-cli2.yaml'), "globs: ['**/*.md']\nignores: ['.git/**']\n");
+  fs.mkdirSync(path.join(root, 'docs/spec'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'docs/spec/topic.md'), '# Topic\n');
+  fs.writeFileSync(path.join(root, 'mkdocs.yml'), 'nav:\n  - Topic: spec/topic.md\n');
+  git('add', '.'); git('commit', '-m', 'site navigation'); git('rm', 'docs/spec/topic.md');
+  await assert.rejects(checkStaged(root), /mkdocs.yml: missing navigation target spec\/topic.md/);
+  fs.writeFileSync(path.join(root, 'mkdocs.yml'), 'nav: []\n');
+  git('add', 'mkdocs.yml'); await checkStaged(root);
+});

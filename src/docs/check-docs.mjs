@@ -245,8 +245,20 @@ export function checkDocs(directory, { base = process.env.DOCS_BASE_REF, now = D
       if (!listed.has(file)) errors.push(`${posix(path.relative(root, index))}: missing topic ${path.basename(file)}`);
     }
   }
-  if (/^nav:/m.test(siteConfig)) {
-    const navigation = new Set([...siteConfig.matchAll(/^\s*-\s+[^:\n]+:\s+([\w./-]+\.md)\s*$/gm)].map(match => match[1]));
+  const nav = siteConfig && parseYaml(siteConfig, { logLevel: 'silent' })?.nav;
+  if (nav) {
+    const navigation = new Set();
+    function visit(item) {
+      if (typeof item === 'string') {
+        if (/^[a-z][\w+.-]*:|^\/\//i.test(item)) return;
+        const target = item.split(/[?#]/)[0];
+        if (/\.md$/i.test(target)) navigation.add(path.posix.normalize(target));
+      } else if (item && typeof item === 'object') Object.values(item).forEach(visit);
+    }
+    visit(nav);
+    for (const target of navigation) {
+      if (!fs.existsSync(path.join(root, 'docs', target))) errors.push(`mkdocs.yml: missing navigation target ${target}`);
+    }
     for (const file of files.filter(file => posix(path.relative(root, file)).startsWith('docs/'))) {
       const target = posix(path.relative(path.join(root, 'docs'), file));
       if (!navigation.has(target)) errors.push(`mkdocs.yml: missing navigation ${target}`);
