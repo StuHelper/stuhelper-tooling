@@ -7,6 +7,14 @@ inputs:
   go-version-file:
     description: Optional repository-relative Go version file
     default: ''
+  go-cache-dependency-path:
+    description: Go dependency manifests used by the checked out modules
+    default: |
+      go.mod
+      go.sum
+  pnpm-cache-dependency-path:
+    description: pnpm lockfiles used by the checked out applications
+    default: pnpm-lock.yaml
   postgres:
     description: Prepare PostgreSQL server and client meta-packages
     default: 'false'
@@ -41,15 +49,13 @@ runs:
         node-version-file: ${{ inputs.node-version-file }}
         package-manager-cache: false
         cache: ${{ steps.policy.outputs.access == 'write' && 'pnpm' || '' }}
-        cache-dependency-path: pnpm-lock.yaml
+        cache-dependency-path: ${{ inputs.pnpm-cache-dependency-path }}
     - uses: actions/setup-go@v7.1.0
       if: inputs.go-version-file != ''
       with:
         go-version-file: ${{ inputs.go-version-file }}
         cache: ${{ steps.policy.outputs.access == 'write' }}
-        cache-dependency-path: |
-          go.mod
-          go.sum
+        cache-dependency-path: ${{ inputs.go-cache-dependency-path }}
     - name: Resolve read-only cache paths
       if: steps.policy.outputs.access == 'read'
       id: paths
@@ -70,14 +76,14 @@ runs:
       if: steps.policy.outputs.access == 'read'
       with:
         path: ${{ steps.paths.outputs.pnpm }}
-        key: node-cache-${{ runner.os }}-${{ steps.paths.outputs.arch }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+        key: node-cache-${{ runner.os }}-${{ steps.paths.outputs.arch }}-pnpm-${{ hashFiles(inputs.pnpm-cache-dependency-path) }}
     - uses: actions/cache/restore@v6.1.0
       if: steps.policy.outputs.access == 'read' && inputs.go-version-file != ''
       with:
         path: |
           ${{ steps.paths.outputs.modules }}
           ${{ steps.paths.outputs.build }}
-        key: setup-go-${{ runner.os }}-${{ steps.paths.outputs.arch }}-${{ steps.paths.outputs.image-os }}-go-${{ steps.paths.outputs.go-version }}-${{ hashFiles('go.mod', 'go.sum') }}
+        key: setup-go-${{ runner.os }}-${{ steps.paths.outputs.arch }}-${{ steps.paths.outputs.image-os }}-go-${{ steps.paths.outputs.go-version }}-${{ hashFiles(inputs.go-cache-dependency-path) }}
     - name: Install actionlint
       shell: bash
       run: bash "$GITHUB_ACTION_PATH/actionlint.sh"

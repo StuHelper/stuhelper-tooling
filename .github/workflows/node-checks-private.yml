@@ -27,7 +27,7 @@ jobs:
       LEFTHOOK: '0'
       DOCS_BASE_REF: ${{ github.event.pull_request.base.sha || github.event.before || github.sha }}
     steps:
-      - uses: StuHelper/stuhelper-tooling/actions/repository-check@v0.1.10
+      - uses: StuHelper/stuhelper-tooling/actions/repository-check@v0.1.11
         with:
           setup-command: ${{ inputs.setup-command }}
           check-command: ${{ inputs.check-command }}
