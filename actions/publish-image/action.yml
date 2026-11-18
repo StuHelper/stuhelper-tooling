@@ -1,6 +1,9 @@
 name: Publish a versioned application image
 description: Publish a versioned application image
 inputs:
+  source-directory:
+    description: Application checkout and Docker build context relative to the workspace
+    default: '.'
   version:
     description: Release tag
     default: ''
@@ -37,10 +40,12 @@ runs:
         fi
     - uses: actions/checkout@v7.0.1
       with:
+        path: ${{ inputs.source-directory }}
         ref: ${{ inputs.version }}
         persist-credentials: false
         fetch-depth: 0
     - name: Verify tag and release ancestry
+      working-directory: ${{ inputs.source-directory }}
       shell: bash
       run: |
         set -euo pipefail
@@ -59,6 +64,7 @@ runs:
         username: ${{ inputs.registry-user }}
         password: ${{ inputs.registry-password }}
     - name: Build and publish fixed source
+      working-directory: ${{ inputs.source-directory }}
       shell: bash
       env:
         BUILDER: ${{ steps.builder.outputs.name }}
@@ -69,6 +75,7 @@ runs:
           echo 'Release image already exists; choose a new version.' >&2
           exit 1
         elif ! [[ "$(cat "$RUNNER_TEMP/image-existence.log")" =~ (manifest[[:space:]]unknown|not[[:space:]]found) ]]; then
+          cat "$RUNNER_TEMP/image-existence.log" >&2
           echo 'Cannot confirm that the release image is absent.' >&2
           exit 1
         fi
@@ -92,4 +99,4 @@ runs:
       env:
         AUTH_DIRECTORY: ${{ steps.runtime.outputs.auth-directory }}
       shell: bash
-      run: test -z "$AUTH_DIRECTORY" || rm -rf -- "$AUTH_DIRECTORY"
+      run: test -z "$AUTH_DIRECTORY" || rm -f -- "$AUTH_DIRECTORY/config.json"
