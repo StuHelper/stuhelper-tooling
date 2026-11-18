@@ -33,7 +33,7 @@
     "@vue/compiler-dom": "3.5.44",
     "github-slugger": "2.0.0",
     "markdown-it": "15.0.3",
-    "markdownlint": "0.42.0",
+    "markdownlint": "0.42.1",
     "picomatch": "4.0.7",
     "yaml": "2.9.1"
   },
