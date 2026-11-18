@@ -6,6 +6,10 @@ on:
         description: Stable required check name
         type: string
         default: Go checks
+      postgres:
+        description: Install or reuse PostgreSQL server and client meta-packages
+        type: string
+        default: 'false'
       setup-command:
         description: Optional setup after dependency installation, such as isolated database tools
         type: string
@@ -14,6 +18,9 @@ on:
         description: The same standalone repository check command used locally
         type: string
         default: make check
+    secrets:
+      modules-read-token:
+        required: false
 permissions:
   contents: read
 jobs:
@@ -29,8 +36,37 @@ jobs:
       DOCS_BASE_REF: ${{ github.event.pull_request.base.sha || github.event.before || github.sha }}
       CONTRACT_BASE_REF: ${{ github.event.pull_request.base.sha || github.event.before || github.sha }}
     steps:
-      - uses: StuHelper/stuhelper-tooling/actions/repository-check@v0.1.11
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Resolve this workflow's tooling revision
+        id: tooling
+        shell: bash
+        env:
+          WORKFLOW_JOB: ${{ toJSON(job) }}
+        run: |
+          set -euo pipefail
+          test ! -L .tools
+          test ! -e .tools/stuhelper-workflow
+          test ! -L .tools/stuhelper-workflow
+          printf '/.tools/stuhelper-workflow/\n' >> "$(git rev-parse --git-path info/exclude)"
+          repository=$(jq -er '.workflow_repository | select(test("^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"))' <<< "$WORKFLOW_JOB")
+          sha=$(jq -er '.workflow_sha | select(test("^[0-9a-f]{40}$"))' <<< "$WORKFLOW_JOB")
+          printf 'repository=%s\nsha=%s\n' "$repository" "$sha" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v7.0.1
+        with:
+          repository: ${{ steps.tooling.outputs.repository }}
+          ref: ${{ steps.tooling.outputs.sha }}
+          path: .tools/stuhelper-workflow
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: /actions/repository-check/
+      - uses: ./.tools/stuhelper-workflow/actions/repository-check
         with:
           setup-command: ${{ inputs.setup-command }}
           check-command: ${{ inputs.check-command }}
           go-version-file: .go-version
+          source-checked-out: 'true'
+          postgres: ${{ inputs.postgres }}
+          modules-read-token: ${{ secrets.modules-read-token }}
