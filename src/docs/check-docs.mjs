@@ -1,3 +1,4 @@
+import { gitMaxBuffer } from '../git-options.mjs';
 import fs from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
@@ -87,39 +88,50 @@ function parsedFile(file, siteDocument) {
       githubAnchors.add(githubAnchor);
       anchors.add(siteDocument ? siteSlug(text, anchors) : githubAnchor);
     }
+    let currentLine = row?.line ?? ((token.map?.[0] ?? 0) + offset + 1);
     for (const child of token.children ?? []) {
-      if (child.type === 'link_open') links.push(child.attrGet('href'));
-      if (child.type === 'image') links.push(child.attrGet('src'));
-      if (child.type === 'text') prose.push(child.content);
+      if (child.type === 'softbreak' || child.type === 'hardbreak') currentLine += 1;
+      if (child.type === 'link_open') links.push({ href: child.attrGet('href'), line: currentLine });
+      if (child.type === 'image') links.push({ href: child.attrGet('src'), line: currentLine });
+      if (child.type === 'text') prose.push({ text: child.content, line: currentLine });
     }
   });
   return { source, frontmatter, anchors, githubAnchors, links, prose, paragraphs, headings, scenarios, tableRows };
 }
 
-const gitText = (root, ...args) => execFileSync('git', ['-C', root, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+const gitText = (root, env, ...args) => execFileSync('git', ['-C', root, ...args], { env, maxBuffer: gitMaxBuffer, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
 const shanghaiDate = date => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit', numberingSystem: 'latn' }).format(new Date(date));
 const withoutUpdated = source => source.replace(/^updated:.*$/m, '').trim();
-function contentDate(root, relative) {
-  for (const entry of gitText(root, 'log', '--format=%H %cI', '--', relative).split('\n')) {
+function contentDate(root, relative, env) {
+  let tip = 'HEAD';
+  const shallowFile = path.resolve(root, gitText(root, env, 'rev-parse', '--git-path', 'shallow'));
+  const shallow = new Set(fs.existsSync(shallowFile) ? fs.readFileSync(shallowFile, 'utf8').trim().split('\n') : []);
+  while (true) {
+    const entry = gitText(root, env, 'log', '-1', '--format=%H %cI', tip, '--', relative);
+    if (!entry) throw new Error(`Cannot determine the content date of ${relative}`);
     const [revision, date] = entry.split(' ');
-    const current = gitText(root, 'show', `${revision}:${relative}`);
-    let previous = '';
-    try { previous = gitText(root, 'show', `${revision}^:${relative}`); } catch { /* New file. */ }
-    if (withoutUpdated(current) !== withoutUpdated(previous)) return shanghaiDate(date);
+    if (shallow.has(revision)) throw new Error(`${relative}: shallow history ends at ${revision}; fetch full history to check updated`);
+    const current = withoutUpdated(gitText(root, env, 'show', `${revision}:${relative}`));
+    const parents = gitText(root, env, 'show', '-s', '--format=%P', revision).split(' ').filter(Boolean);
+    const matching = parents.find(parent => {
+      try { return current === withoutUpdated(gitText(root, env, 'show', `${parent}:${relative}`)); }
+      catch (error) { if (error.status === 128) return false; throw error; }
+    });
+    if (!matching) return shanghaiDate(date);
+    tip = matching;
   }
-  throw new Error(`Cannot determine the content date of ${relative}`);
 }
-function changedDates(root, files, requestedBase, now) {
+function changedDates(root, files, requestedBase, now, env) {
   let base = requestedBase;
-  try { if (fs.realpathSync(gitText(root, 'rev-parse', '--show-toplevel')) !== root) return new Map(); }
+  try { if (fs.realpathSync(gitText(root, env, 'rev-parse', '--show-toplevel')) !== root) return new Map(); }
   catch { return new Map(); }
   if (!base) {
-    try { gitText(root, 'rev-parse', '--verify', 'origin/develop'); base = 'origin/develop'; }
+    try { gitText(root, env, 'rev-parse', '--verify', 'origin/develop'); base = 'origin/develop'; }
     catch { base = 'HEAD'; }
   }
   if (/^0+$/.test(base)) base = null;
   if (base) {
-    try { gitText(root, 'rev-parse', '--verify', `${base}^{commit}`); }
+    try { gitText(root, env, 'rev-parse', '--verify', `${base}^{commit}`); }
     catch { if (base === 'HEAD' && !requestedBase) base = null; else throw new Error(`Invalid documentation base: ${base}`); }
   }
   const dates = new Map();
@@ -128,19 +140,19 @@ function changedDates(root, files, requestedBase, now) {
     if (!relative.startsWith('docs/') || path.basename(file) === 'TEMPLATE.md') continue;
     const current = fs.readFileSync(file, 'utf8');
     let previous = '';
-    try { if (base) previous = gitText(root, 'show', `${base}:${relative}`); } catch { /* New topic. */ }
+    try { if (base) previous = gitText(root, env, 'show', `${base}:${relative}`); } catch { /* New topic. */ }
     if (current.trim() === previous) continue;
     let committed = '';
-    try { committed = gitText(root, 'show', `HEAD:${relative}`); } catch { /* New uncommitted topic. */ }
+    try { committed = gitText(root, env, 'show', `HEAD:${relative}`); } catch { /* New uncommitted topic. */ }
     const date = withoutUpdated(current) !== withoutUpdated(committed)
       ? shanghaiDate(now)
-      : contentDate(root, relative);
+      : contentDate(root, relative, env);
     dates.set(file, date);
   }
   return dates;
 }
 
-export function checkDocs(directory, { base = process.env.DOCS_BASE_REF, now = Date.now(), glossary: suppliedGlossary } = {}) {
+export function checkDocs(directory, { base = process.env.DOCS_BASE_REF, now = Date.now(), glossary: suppliedGlossary, env = process.env } = {}) {
   const root = fs.realpathSync(directory);
   const errors = [];
   const cache = new Map();
@@ -150,22 +162,25 @@ export function checkDocs(directory, { base = process.env.DOCS_BASE_REF, now = D
   };
   const files = filesIn(root);
   const ownGlossary = path.join(root, 'docs/spec/terminology.md');
-  const glossary = suppliedGlossary ? path.resolve(root, suppliedGlossary) : ownGlossary;
-  const requiredDates = changedDates(root, files, base, now);
+  const requested = suppliedGlossary === undefined ? ownGlossary : path.resolve(root, suppliedGlossary);
+  const glossary = suppliedGlossary !== undefined || fs.existsSync(requested) ? fs.realpathSync(requested) : null;
+  const requiredDates = changedDates(root, files, base, now, env);
   const today = shanghaiDate(now);
   const scenarioOwners = new Map();
   const adrOwners = new Map();
-  const aliases = fs.existsSync(glossary) ? fs.readFileSync(glossary, 'utf8').split('\n').filter(line => line.startsWith('|')).flatMap(line => {
+  const aliases = glossary ? fs.readFileSync(glossary, 'utf8').split('\n').filter(line => line.startsWith('|')).flatMap(line => {
     const cells = line.split('|').map(cell => cell.trim());
-    return cells.length === 7 && !['替代表述', '---', '—'].includes(cells[5]) ? cells[5].split('、').map(alias => [alias, cells[1]]) : [];
+    if (cells.length !== 7 || cells[5] === '替代表述' || /^:?-{3,}:?$/.test(cells[5])) return [];
+    return cells[5].split('、').map(alias => alias.trim()).filter(alias => alias && !['-', '—', '无'].includes(alias)).map(alias => [alias, cells[1]]);
   }) : [];
   const siteFile = path.join(root, 'mkdocs.yml');
-  const siteConfig = fs.existsSync(siteFile) ? fs.readFileSync(siteFile, 'utf8') : '';
-  const repository = siteConfig.match(/^repo_url:\s*(https:\/\/github\.com\/[^\s]+)\s*$/m)?.[1];
+  const siteConfig = fs.existsSync(siteFile) ? parseYaml(fs.readFileSync(siteFile, 'utf8'), { logLevel: 'silent' }) : null;
+  const repository = siteConfig?.repo_url?.replace(/\/+$/, '');
 
   for (const file of files) {
     const relative = posix(path.relative(root, file));
     const report = (message) => errors.push(`${relative}: ${message}`);
+    const reportAt = (line, message) => errors.push(`${relative}:${line}: ${message}`);
     const parsed = read(file);
     const template = path.basename(file) === 'TEMPLATE.md';
     if (relative.startsWith('docs/')) {
@@ -188,15 +203,18 @@ export function checkDocs(directory, { base = process.env.DOCS_BASE_REF, now = D
           report('invalid YAML metadata');
         }
       }
-      if (!template && parsed.prose.some((text) => placeholder.test(text))) report('unfilled prose placeholder');
+      if (!template) {
+        const unfilled = parsed.prose.find((item) => placeholder.test(item.text));
+        if (unfilled) reportAt(unfilled.line, 'unfilled prose placeholder');
+      }
     }
     if (!template) for (const paragraph of parsed.paragraphs) {
       const count = [...paragraph.text].length;
-      if (count > 200) report(`第 ${paragraph.line} 行段落有 ${count} 个可见字符，超过 200；请按主题拆分。`);
-      if (/(?:不是.{0,80}而是|不应该.{0,80}而应该|不应.{0,80}而应)/u.test(paragraph.text)) report(`第 ${paragraph.line} 行请直接描述当前规则，必要的技术对比应明确具体条件。`);
+      if (count > 200) reportAt(paragraph.line, `第 ${paragraph.line} 行段落有 ${count} 个可见字符，超过 200；请按主题拆分。`);
+      if (/(?:不是.{0,80}而是|不应该.{0,80}而应该|不应.{0,80}而应)/u.test(paragraph.text)) reportAt(paragraph.line, `第 ${paragraph.line} 行请直接描述当前规则，必要的技术对比应明确具体条件。`);
     }
     for (const { id, line } of relative.startsWith('docs/spec/') ? parsed.scenarios : []) {
-      if (scenarioOwners.has(id)) report(`第 ${line} 行场景编号 ${id} 与 ${scenarioOwners.get(id)} 重复。`);
+      if (scenarioOwners.has(id)) reportAt(line, `第 ${line} 行场景编号 ${id} 与 ${scenarioOwners.get(id)} 重复。`);
       else scenarioOwners.set(id, `${relative}:${line}`);
     }
     if (/^docs\/adr\/\d/.test(relative)) {
@@ -206,9 +224,10 @@ export function checkDocs(directory, { base = process.env.DOCS_BASE_REF, now = D
       if (number) adrOwners.set(number, relative);
     }
     if (file !== glossary) for (const [alias, canonical] of aliases) {
-      if (parsed.prose.some(text => text.includes(alias))) report(`use standard term "${canonical}" instead of "${alias}"`);
+      const hit = parsed.prose.find(item => item.text.includes(alias));
+      if (hit) reportAt(hit.line, `use standard term "${canonical}" instead of "${alias}"`);
     }
-    for (let href of parsed.links) {
+    for (let { href, line } of parsed.links) {
       let github = false;
       if (repository && href?.startsWith(`${repository}/blob/develop/`)) {
         const url = new URL(href);
@@ -223,12 +242,12 @@ export function checkDocs(directory, { base = process.env.DOCS_BASE_REF, now = D
         const pathname = decodeURIComponent((hash < 0 ? href : href.slice(0, hash)).split('?')[0]);
         const target = pathname ? path.resolve(path.dirname(file), pathname) : file;
         if (!inside(root, target) || !fs.existsSync(target) || !inside(root, fs.realpathSync(target))) {
-          report(`missing or external local target: ${href}`);
+          reportAt(line, `missing or external local target: ${href}`);
         } else if (fragment && /\.(?:md|markdown)$/i.test(target) && fs.statSync(target).isFile() && !(github ? read(target).githubAnchors : read(target).anchors).has(fragment)) {
-          report(`missing heading anchor: ${href}`);
+          reportAt(line, `missing heading anchor: ${href}`);
         }
       } catch {
-        report(`invalid local link: ${href}`);
+        reportAt(line, `invalid local link: ${href}`);
       }
     }
   }
@@ -240,13 +259,24 @@ export function checkDocs(directory, { base = process.env.DOCS_BASE_REF, now = D
       if (!description) errors.push(`${posix(path.relative(root, index))}:${row.line}: 主题描述不能为空。`);
       else if (row.cells[0].text === description) errors.push(`${posix(path.relative(root, index))}:${row.line}: 主题描述需要说明内容，不能重复标题。`);
     }
-    const listed = new Set(read(index).links.map(link => path.resolve(path.dirname(index), link.split('#')[0])));
+    const listed = new Set(read(index).links.filter(item => item.href).map(item => path.resolve(path.dirname(index), item.href.split('#')[0])));
     for (const file of files.filter(file => path.dirname(file) === path.dirname(index) && !['README.md', 'TEMPLATE.md'].includes(path.basename(file)))) {
       if (!listed.has(file)) errors.push(`${posix(path.relative(root, index))}: missing topic ${path.basename(file)}`);
     }
   }
-  if (/^nav:/m.test(siteConfig)) {
-    const navigation = new Set([...siteConfig.matchAll(/^\s*-\s+[^:\n]+:\s+([\w./-]+\.md)\s*$/gm)].map(match => match[1]));
+  if (siteConfig?.nav) {
+    const navigation = new Set();
+    function visit(item) {
+      if (typeof item === 'string') {
+        if (/^[a-z][\w+.-]*:|^\/\//i.test(item)) return;
+        const target = item.split(/[?#]/)[0];
+        if (/\.md$/i.test(target)) navigation.add(path.posix.normalize(target));
+      } else if (item && typeof item === 'object') Object.values(item).forEach(visit);
+    }
+    visit(siteConfig.nav);
+    for (const target of navigation) {
+      if (!fs.existsSync(path.join(root, 'docs', target))) errors.push(`mkdocs.yml: missing navigation target ${target}`);
+    }
     for (const file of files.filter(file => posix(path.relative(root, file)).startsWith('docs/'))) {
       const target = posix(path.relative(path.join(root, 'docs'), file));
       if (!navigation.has(target)) errors.push(`mkdocs.yml: missing navigation ${target}`);

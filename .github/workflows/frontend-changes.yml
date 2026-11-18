@@ -1,0 +1,39 @@
+name: Select frontend browser checks
+on:
+  workflow_call:
+    outputs:
+      browser:
+        description: Run browser tests for application or build changes
+        value: ${{ jobs.changes.outputs.browser }}
+permissions:
+  contents: read
+jobs:
+  changes:
+    runs-on: ubuntu-26.04
+    outputs:
+      browser: ${{ steps.paths.outputs.browser }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - id: paths
+        shell: bash
+        env:
+          BEFORE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          browser=true
+          if [[ "$BEFORE" =~ ^[0-9a-f]{40}$ && "$HEAD" =~ ^[0-9a-f]{40}$ ]] &&
+             git cat-file -e "$BEFORE^{commit}" && git cat-file -e "$HEAD^{commit}"; then
+            base=$BEFORE
+            if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
+              base=$(git merge-base "$BEFORE" "$HEAD")
+            fi
+            if git diff --quiet --no-renames "$base" "$HEAD" -- . \
+              ':(exclude,glob)docs/**/*.md' ':(exclude)README.md' ':(exclude)CONTRIBUTING.md'; then
+              browser=false
+            fi
+          fi
+          echo "browser=$browser" >> "$GITHUB_OUTPUT"

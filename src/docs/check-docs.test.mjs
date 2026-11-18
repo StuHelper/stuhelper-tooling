@@ -53,7 +53,20 @@ test('templates and code examples allow placeholders, ordinary prose does not', 
     'docs/spec/a.md': doc('# 示例\n\n`TODO: literal`\n\n```text\nYYYY-MM-DD\n```'),
     'docs/spec/b.md': doc('# 未完成\n\nTODO: 填写'),
   });
-  assert.deepEqual(checkDocs(root).errors, ['docs/spec/b.md: unfilled prose placeholder']);
+  assert.deepEqual(checkDocs(root).errors, ['docs/spec/b.md:9: unfilled prose placeholder']);
+});
+
+test('broken links, placeholders and alias violations report exact 1-based line numbers across softbreaks', (t) => {
+  const root = fixture(t, {
+    'docs/spec/a.md': doc('# 规格\n\n第一行正文\n第二行含 [断链](absent.md)\n第三行含旧词有效学生资格\n第四行含 TODO: 补全'),
+  });
+  fs.writeFileSync(path.join(root, 'glossary.md'), '| 术语 | 定义 | 字段 | 范围 | 替代表述 |\n| 有效校园资格 | definition | field | scope | 有效学生资格 |\n');
+  const errors = checkDocs(root, { glossary: 'glossary.md' }).errors;
+  assert.deepEqual(errors, [
+    'docs/spec/a.md:12: unfilled prose placeholder',
+    'docs/spec/a.md:11: use standard term "有效校园资格" instead of "有效学生资格"',
+    'docs/spec/a.md:10: missing or external local target: absent.md',
+  ]);
 });
 
 test('ignored dependencies are not parsed and links cannot escape repository', (t) => {
@@ -237,4 +250,59 @@ test('unchanged newline-terminated documents stay outside the changed-date histo
   assert.deepEqual(checkDocs(root, options).errors, []);
   fs.writeFileSync(path.join(root, 'docs/spec/a.md'), doc('# A', 'spec', '2026-10-22'));
   assert.match(checkDocs(root, options).errors.join('\n'), /不早于本次内容修改日期 2026-10-24/);
+});
+
+test('explicit glossary must exist and empty aliases, placeholders and separators are ignored', t => {
+  const root = fixture(t, { 'README.md': '# 文档\n\n- 正文\n', 'terms.md': '| 术语 | Term | ID | 定义 | 替代表述 |\n| :--- | --- | --- | --- | ---- |\n| 甲 | A | a | 一 |   |\n| 乙 | B | b | 二 | -、—、无、  |\n' });
+  assert.throws(() => checkDocs(root, { glossary: 'absent.md' }), /absent.md/);
+  fs.symlinkSync('terms.md', path.join(root, 'selected.md'));
+  assert.deepEqual(checkDocs(root, { glossary: 'selected.md' }).errors, []);
+});
+test('real YAML navigation accepts nested and quoted paths, and reports stale entries', t => {
+  const root = fixture(t, { 'docs/spec/a.md': doc('# A\n\n[Missing](https://github.com/StuHelper/example/blob/develop/missing.md)'),
+    'mkdocs.yml': "repo_url: 'https://github.com/StuHelper/example/'\nnav:\n  - Group:\n      - 'spec/a.md' # title optional\n      - Old: missing.md\n" });
+  const errors = checkDocs(root).errors;
+  assert.equal(errors.length, 2);
+  assert.ok(errors.some(e => e.includes('missing or external local target')));
+  assert.ok(errors.some(e => e.includes('missing.md') && e.startsWith('mkdocs.yml:')));
+});
+
+test('merge inherits body date from the matching parent and shallow boundaries request history', t => {
+  const root = fixture(t, { 'docs/spec/a.md': doc('# Initial', 'spec', '2026-10-01') });
+  let day = '01';
+  const git = (...args) => execFileSync('git', ['-C', root, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', ...args],
+    { encoding: 'utf8', stdio: 'pipe', env: { ...process.env, GIT_AUTHOR_DATE: '2026-10-' + day + 'T00:00:00Z', GIT_COMMITTER_DATE: '2026-10-' + day + 'T00:00:00Z' } }).trim();
+  git('init', '-b', 'main'); git('add', '.'); git('commit', '-m', 'initial');
+  const base = git('rev-parse', 'HEAD');
+  git('checkout', '-b', 'topic'); day = '02';
+  const file = path.join(root, 'docs/spec/a.md');
+  fs.writeFileSync(file, doc('# Topic', 'spec', '2026-10-02')); git('commit', '-am', 'topic');
+  git('checkout', 'main'); day = '04'; git('merge', '--no-ff', '--no-commit', 'topic');
+  fs.writeFileSync(file, doc('# Topic', 'spec', '2026-10-03')); git('commit', '-am', 'merge with metadata');
+  const options = { base, now: Date.parse('2026-10-05T00:00:00Z') };
+  assert.deepEqual(checkDocs(root, options).errors, []);
+  const shallow = fs.mkdtempSync(path.join(os.tmpdir(), 'docs-shallow-'));
+  t.after(() => fs.rmSync(shallow, { recursive: true }));
+  git('clone', '--depth', '1', 'file://' + root, shallow);
+  assert.throws(() => checkDocs(shallow, { ...options, base: '0'.repeat(40) }), /shallow|浅克隆/);
+});
+
+test('large committed document bodies retain their actual Git content date', t => {
+  const initial = 'x'.repeat(1100000);
+  const root = fixture(t, { 'docs/spec/a.md': doc('# A\n\n```text\n' + initial + '\n```', 'spec', '2026-10-23') });
+  const git = (...args) => execFileSync('git', ['-C', root, ...args], { stdio: 'pipe', encoding: 'utf8',
+    env: { ...process.env, GIT_AUTHOR_DATE: '2026-10-23T00:00:00Z', GIT_COMMITTER_DATE: '2026-10-23T00:00:00Z' } }).trim();
+  git('init', '-q'); git('add', '.'); git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'body');
+  const options = { base: '0'.repeat(40), now: Date.parse('2026-10-26T00:00:00Z') };
+  assert.deepEqual(checkDocs(root, options).errors, []);
+});
+
+test('each table cell diagnostic uses its own source row', t => {
+  const root = fixture(t, {
+    'docs/spec/a.md': doc('# 规格\n\n| 名称 | 详情 |\n| --- | --- |\n| 第一项 | [失效](absent.md) |\n| 第二项 | TODO: 填写 |'),
+  });
+  assert.deepEqual(checkDocs(root).errors.sort(), [
+    'docs/spec/a.md:11: missing or external local target: absent.md',
+    'docs/spec/a.md:12: unfilled prose placeholder',
+  ]);
 });
