@@ -16,6 +16,7 @@ test('check() validates both standalone web and monorepo admin directory layouts
 
   const policy = {
     default: 'zh-CN',
+    default_time_zone: 'Asia/Shanghai',
     languages: {
       'zh-CN': { name: '简体中文', direction: 'ltr' },
       'en-US': { name: 'English', direction: 'ltr' },

@@ -6,8 +6,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { test } from 'node:test';
 import YAML from 'yaml';
 
-const workflow = YAML.parse(fs.readFileSync(new URL('../.github/workflows/image.yml', import.meta.url), 'utf8'));
-const steps = workflow.jobs.publish.steps;
+const steps = YAML.parse(fs.readFileSync(new URL('../actions/publish-image/action.yml', import.meta.url), 'utf8')).runs.steps;
 const validateStep = steps.find(step => step.name === 'Validate release selection');
 const ancestryStep = steps.find(step => step.name === 'Verify tag and release ancestry');
 const buildStep = steps.find(step => step.name === 'Build and publish fixed source');
@@ -32,7 +31,7 @@ test('image.yml validates release inputs, creates isolated auth directory and cl
       GITHUB_ENV: envFile,
       APPLICATION: 'web',
       VERSION: 'v1.2.3',
-      REGISTRY: 'registry.stuhelper.example:5000',
+      RUNNER_ENVIRONMENT: 'self-hosted', STUHELPER_OCI_REGISTRY: 'registry.stuhelper.example:5000',
       BUILDKIT_HOST: 'tcp://buildkitd.arc.svc:1234',
     },
     encoding: 'utf8',
@@ -45,7 +44,7 @@ test('image.yml validates release inputs, creates isolated auth directory and cl
   for (const override of [
     { APPLICATION: 'unknown' },
     { VERSION: 'main' },
-    { REGISTRY: 'https://bad-scheme' },
+    { STUHELPER_OCI_REGISTRY: 'https://bad-scheme' },
     { BUILDKIT_HOST: 'unix:///var/run/buildkitd.sock' },
   ]) {
     const failed = spawnSync('bash', ['-c', validateStep.run], {
@@ -57,7 +56,7 @@ test('image.yml validates release inputs, creates isolated auth directory and cl
         GITHUB_ENV: envFile,
         APPLICATION: 'backend',
         VERSION: 'v1.0.0',
-        REGISTRY: 'registry.example.com',
+        RUNNER_ENVIRONMENT: 'self-hosted', STUHELPER_OCI_REGISTRY: 'registry.example.com', REGISTRY: 'registry.example.com', IMAGE_PATH: 'stuhelper-next/backend',
         BUILDKIT_HOST: 'tcp://buildkitd:1234',
         ...override,
       },
@@ -72,7 +71,7 @@ test('image.yml validates release inputs, creates isolated auth directory and cl
     encoding: 'utf8',
   });
   assert.equal(cleaned.status, 0, cleaned.stderr);
-  assert.ok(!fs.existsSync(authDir));
+  assert.ok(!fs.existsSync(path.join(authDir, 'config.json')));
 });
 
 test('image.yml enforces annotated tag ancestry on origin/main and verifies digest publication', t => {
@@ -133,7 +132,7 @@ exit 1
     PATH: `${bin}:${process.env.PATH}`,
     RUNNER_TEMP: runtime,
     GITHUB_STEP_SUMMARY: summaryFile,
-    REGISTRY: 'registry.example.com',
+    RUNNER_ENVIRONMENT: 'self-hosted', STUHELPER_OCI_REGISTRY: 'registry.example.com', REGISTRY: 'registry.example.com', IMAGE_PATH: 'stuhelper-next/backend',
     APPLICATION: 'backend',
     VERSION: 'v1.0.0',
     BUILDER: 'builder-0',

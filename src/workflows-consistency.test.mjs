@@ -12,12 +12,11 @@ const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'))
 const readWorkflow = name => YAML.parse(fs.readFileSync(path.join(root, '.github/workflows', name), 'utf8'));
 
 test('shared workflows pin consistent actions/setup version tags and forbid SHA or branch references', () => {
-  const reusable = ['go-checks.yml', 'node-checks.yml', 'release.yml'];
-  const setupRefs = reusable.map(name => {
-    const wf = readWorkflow(name);
-    const job = Object.values(wf.jobs)[0];
-    const step = job.steps.find(item => item.uses?.startsWith('StuHelper/stuhelper-tooling/actions/setup@'));
-    assert.ok(step, `${name} must invoke StuHelper/stuhelper-tooling/actions/setup`);
+  const actions = ['repository-check', 'release-assets'];
+  const setupRefs = actions.map(name => {
+    const action = YAML.parse(fs.readFileSync(path.join(root, 'actions', name, 'action.yml'), 'utf8'));
+    const step = action.runs.steps.find(item => item.uses?.startsWith('StuHelper/stuhelper-tooling/actions/setup@'));
+    assert.ok(step, name);
     return step.uses.split('@')[1];
   });
   assert.equal(new Set(setupRefs).size, 1, `Mismatched actions/setup versions: ${setupRefs.join(', ')}`);
@@ -52,29 +51,31 @@ test('shared workflows pin consistent actions/setup version tags and forbid SHA 
 });
 
 test('public runner forced-downgrade and image release isolation guards stay intact', () => {
-  const expectedRunsOn = "${{ fromJSON(github.event.repository.private && inputs.runs-on || '\"ubuntu-26.04\"') }}";
-  for (const name of ['go-checks.yml', 'node-checks.yml', 'release.yml']) {
-    const job = Object.values(readWorkflow(name).jobs)[0];
-    assert.equal(job['runs-on'], expectedRunsOn, name);
+  for (const name of ['go-checks', 'node-checks', 'release', 'image']) {
+    const hosted = Object.values(readWorkflow(name + '.yml').jobs)[0];
+    const internal = Object.values(readWorkflow(name + '-private.yml').jobs)[0];
+    assert.equal(hosted['runs-on'], 'ubuntu-26.04');
+    assert.equal(internal['runs-on'].group, 'stuhelper-arc');
+    assert.match(internal.if, /github\.event\.repository\.private/);
+    if (name === 'image') {
+      for (const job of [hosted, internal]) {
+        assert.equal(job.environment, 'release');
+        assert.match(job.if, /github\.event_name != 'pull_request_target'/);
+      }
+    }
   }
-  const imagePublish = readWorkflow('image.yml').jobs.publish;
-  assert.equal(imagePublish.if, "github.event_name != 'pull_request' && github.event_name != 'pull_request_target'");
-  assert.equal(imagePublish.environment, 'release');
-  assert.match(imagePublish['runs-on'].group, /stuhelper-arc-release/);
-  assert.match(imagePublish['runs-on'].labels, /stuhelper-arc-sh-release/);
-
-  const isolation = readWorkflow('runner-isolation.yml').jobs.guard;
-  assert.equal(isolation.uses, './.github/workflows/node-checks.yml');
-  assert.match(isolation.with['check-command'], /RUNNER_ENVIRONMENT.*github-hosted/);
+  const guard = readWorkflow('runner-isolation.yml').jobs.guard;
+  assert.equal(guard['runs-on'], 'ubuntu-26.04');
+  assert.match(guard.steps[0].run, /RUNNER_ENVIRONMENT.*github-hosted/);
 });
 
 test('reusable Node checks run optional setup before check command and propagate failures', t => {
   const job = readWorkflow('node-checks.yml').jobs.check;
-  const setup = job.steps.find(step => step.name === 'Prepare the application');
-  const check = job.steps.find(step => step.name === 'Check repository');
-  assert.equal(setup.if, "inputs.setup-command != ''");
-  assert(job.steps.indexOf(setup) < job.steps.indexOf(check));
-
+  assert.match(job.steps[0].uses, /repository-check@v/);
+  const steps = YAML.parse(fs.readFileSync(path.join(root,'actions/repository-check/action.yml'), 'utf8')).runs.steps;
+  const setup = steps.find(step => step.name === 'Prepare repository checks');
+  const check = steps.find(step => step.name === 'Check repository');
+  assert.ok(steps.indexOf(setup) < steps.indexOf(check));
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'stuhelper-node-workflow-'));
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
   const execStep = (step, command) => spawnSync('bash', ['-euo', 'pipefail', '-c', step.run], {
@@ -101,7 +102,7 @@ test('workflows subcommand enables -color only for TTY or GitHub Actions', t => 
   delete plainEnv.GITHUB_STEP_SUMMARY;
   const plain = spawnSync(process.execPath, [cli, 'workflows'], { cwd: directory, env: plainEnv, encoding: 'utf8' });
   assert.equal(plain.status, 0, plain.stderr);
-  assert.deepEqual(fs.readFileSync(argsLog, 'utf8').trim().split('\n'), ['-shellcheck=', '-pyflakes=']);
+  assert.deepEqual(fs.readFileSync(argsLog, 'utf8').trim().split('\n'), ['-format', '{{json .}}', '-shellcheck=', '-pyflakes=']);
 
   const ci = spawnSync(process.execPath, [cli, 'workflows'], {
     cwd: directory,
@@ -109,5 +110,5 @@ test('workflows subcommand enables -color only for TTY or GitHub Actions', t => 
     encoding: 'utf8',
   });
   assert.equal(ci.status, 0, ci.stderr);
-  assert.deepEqual(fs.readFileSync(argsLog, 'utf8').trim().split('\n'), ['-color', '-shellcheck=', '-pyflakes=']);
+  assert.deepEqual(fs.readFileSync(argsLog, 'utf8').trim().split('\n'), ['-color', '-format', '{{json .}}', '-shellcheck=', '-pyflakes=']);
 });

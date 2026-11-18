@@ -6,8 +6,8 @@ action_path=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 . "$action_path/summary.sh"
 start=$(now_ms)
 pg_source=preinstalled
-if ! dpkg-query -W -f='${Status}' postgresql postgresql-client 2>/dev/null | grep -qv 'install ok installed' &&
-   dpkg-query -W postgresql postgresql-client >/dev/null 2>&1; then
+if statuses=$(dpkg-query -W -f='${Status}\n' postgresql postgresql-client 2>/dev/null) &&
+   [[ "$statuses" == $'install ok installed\ninstall ok installed' ]]; then
   printf 'Using preinstalled PostgreSQL meta-packages\n'
 else
   pg_source=downloaded
@@ -25,13 +25,14 @@ else
   sudo -n install -m 0644 "$directory/pgdg.asc" "$keyring"
   printf 'Types: deb\nURIs: https://apt.postgresql.org/pub/repos/apt\nSuites: %s-pgdg\nComponents: main\nSigned-By: %s\n' "$VERSION_CODENAME" "$keyring" > "$directory/pgdg.sources"
   sudo -n install -m 0644 "$directory/pgdg.sources" "$sources"
-  sudo -n apt-get -o Acquire::Retries=3 -o Acquire::https::Timeout=30 -o Acquire::http::Timeout=30 -o DPkg::Lock::Timeout=120 update -qq
-  sudo -n apt-get -o Acquire::Retries=3 -o Acquire::https::Timeout=30 -o Acquire::http::Timeout=30 -o DPkg::Lock::Timeout=120 install -y --no-install-recommends postgresql postgresql-client
+  sudo -n env DEBIAN_FRONTEND=noninteractive apt-get -o Acquire::Retries=3 -o Acquire::https::Timeout=30 -o Acquire::http::Timeout=30 -o DPkg::Lock::Timeout=120 update -qq
+  sudo -n env DEBIAN_FRONTEND=noninteractive apt-get -o Acquire::Retries=3 -o Acquire::https::Timeout=30 -o Acquire::http::Timeout=30 -o DPkg::Lock::Timeout=120 install -y --no-install-recommends postgresql postgresql-client
 fi
 pg_package=$(dpkg-query -W -f='${Depends}' postgresql | grep -oE 'postgresql-[0-9]+' | head -n 1)
 test -n "$pg_package"
 pg_bin="${STUHELPER_PG_ROOT:-/usr/lib/postgresql}/${pg_package#postgresql-}/bin"
 test -x "$pg_bin/initdb"
+"$pg_bin/psql" --version
 pg_version_raw=$("$pg_bin/postgres" --version)
 printf '%s\n' "$pg_version_raw"
 printf 'STUHELPER_TEST_PG_BIN=%s\n' "$pg_bin" >> "$GITHUB_ENV"

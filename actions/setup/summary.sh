@@ -45,11 +45,26 @@ flush_toolchain_summary() {
     done < "$records"
   fi
   if [[ -n "$records" ]]; then
-    rm -f -- "$records"
+    rm -f -- "$records" "$records.start" "$records.before"
   fi
   if [[ -n "${GITHUB_ENV:-}" && -f "${GITHUB_ENV:-}" ]]; then
     printf 'STUHELPER_SETUP_RECORDS=\n' >> "$GITHUB_ENV"
   fi
+}
+
+tool_identity() {
+  local binary
+  binary=$(command -v "$1") || return 1
+  printf '%s ' "$binary"
+  stat -Lc '%d:%i:%s:%y' "$binary"
+}
+
+tool_version() {
+  case "$1" in
+    pnpm|node) "$1" --version ;;
+    go) GOTOOLCHAIN=local go version | awk '{print $3}' ;;
+    *) return 1 ;;
+  esac
 }
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
@@ -57,6 +72,21 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
     init)
       records=$(mktemp "${RUNNER_TEMP:?}/stuhelper-setup-records.XXXXXX")
       printf 'STUHELPER_SETUP_RECORDS=%s\n' "$records" >> "${GITHUB_ENV:?}"
+      ;;
+    start)
+      [[ "$2" =~ ^(pnpm|node|go)$ ]]
+      records=${STUHELPER_SETUP_RECORDS:?}
+      now_ms > "$records.start"
+      tool_identity "$2" > "$records.before" || :
+      ;;
+    record)
+      [[ "$2" =~ ^(pnpm|node|go)$ ]]
+      records=${STUHELPER_SETUP_RECORDS:?}
+      version=$(tool_version "$2")
+      origin=$3
+      current=$(tool_identity "$2")
+      if [[ "$current" == "$(cat "$records.before")" ]]; then origin=preinstalled; fi
+      record_toolchain_metric "$2" "$version" "$origin" "$(format_duration_ms "$(cat "$records.start")" "$(now_ms)")"
       ;;
     flush)
       flush_toolchain_summary
