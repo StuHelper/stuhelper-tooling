@@ -13,8 +13,10 @@ export function diagnostic(message, level = 'error') {
 
 export function summary(name, result, details = '') {
   if (!process.env.GITHUB_STEP_SUMMARY) return;
-  if (!fs.existsSync(process.env.GITHUB_STEP_SUMMARY) || fs.statSync(process.env.GITHUB_STEP_SUMMARY).size === 0) {
-    fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, '| Check | Result | Details |\n| --- | --- | --- |\n');
+  const existing = fs.existsSync(process.env.GITHUB_STEP_SUMMARY) ? fs.readFileSync(process.env.GITHUB_STEP_SUMMARY, 'utf8') : '';
+  if (!existing.includes('| Check | Result | Details |')) {
+    const prefix = existing && !existing.endsWith('\n\n') ? '\n' : '';
+    fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${prefix}| Check | Result | Details |\n| --- | --- | --- |\n`);
   }
   fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `| ${name.replaceAll('|', '\\|')} | ${result} | ${details.replaceAll('|', '\\|').replaceAll('\n', ' ')} |\n`);
 }

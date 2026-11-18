@@ -2,6 +2,8 @@
 # Prefer image tools; otherwise install verified tools into this job's directory.
 set -euo pipefail
 action_path=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=actions/setup/summary.sh
+. "$action_path/summary.sh"
 directory=$(mktemp -d "${RUNNER_TEMP:?}/stuhelper-toolchains.XXXXXX")
 trap 'rm -rf -- "$directory"' ERR
 mkdir "$directory/bin"
@@ -17,8 +19,11 @@ version_file() {
   [[ "$value" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || return 1
   printf '%s' "$value"
 }
+node_start=$(now_ms)
+node_source=preinstalled
 node_version=$(version_file "${NODE_VERSION_FILE:-.node-version}")
 if ! command -v node >/dev/null || [[ "$(node --version)" != "v$node_version" ]]; then
+  node_source=downloaded
   archive="node-v$node_version-linux-$node_arch.tar.xz"
   source="https://nodejs.org/dist/v$node_version"
   bash "$action_path/download.sh" "$source/SHASUMS256.txt" "$directory/node-checksums.txt"
@@ -31,9 +36,13 @@ if ! command -v node >/dev/null || [[ "$(node --version)" != "v$node_version" ]]
   rm -- "$directory/$archive"
 fi
 test "$(node --version)" = "v$node_version"
+record_toolchain_metric "Node.js" "v$node_version" "$node_source" "$(format_duration_ms "$node_start" "$(now_ms)")"
 
+pnpm_start=$(now_ms)
+pnpm_source=preinstalled
 pnpm_version=$(node --input-type=module -e 'import fs from "node:fs"; const value = JSON.parse(fs.readFileSync("package.json", "utf8")).packageManager; const match = /^pnpm@(\d+\.\d+\.\d+)(?:\+sha(?:224|256|384|512)\.[a-f0-9]+)?$/.exec(value); if (!match) process.exit(1); console.log(match[1]);')
 if ! command -v pnpm >/dev/null || [[ "$(pnpm --version)" != "$pnpm_version" ]]; then
+  pnpm_source=downloaded
   # npm's integrity metadata is fetched from the official registry, independent
   # of any runner-wide mirror. Verify it before executing package code.
   bash "$action_path/download.sh" "https://registry.npmjs.org/pnpm/$pnpm_version" "$directory/pnpm.json"
@@ -54,10 +63,14 @@ NODE
   rm -- "$directory/pnpm.tgz"
 fi
 test "$(pnpm --version)" = "$pnpm_version"
+record_toolchain_metric "pnpm" "$pnpm_version" "$pnpm_source" "$(format_duration_ms "$pnpm_start" "$(now_ms)")"
 
 if [[ -n "${GO_VERSION_FILE:-}" ]]; then
+  go_start=$(now_ms)
+  go_source=preinstalled
   go_version=$(version_file "$GO_VERSION_FILE")
   if ! command -v go >/dev/null || [[ "$(GOTOOLCHAIN=local go version)" != "go version go$go_version "* ]]; then
+    go_source=downloaded
     archive="go$go_version.linux-$go_arch.tar.gz"
     bash "$action_path/download.sh" 'https://go.dev/dl/?mode=json&include=all' "$directory/go.json"
     read -r checksum size < <(node --input-type=module - "$directory/go.json" "$archive" <<'NODE'
@@ -84,7 +97,8 @@ NODE
     sudo -n apt-get -o Acquire::Retries=3 -o Acquire::https::Timeout=30 -o Acquire::http::Timeout=30 -o DPkg::Lock::Timeout=120 update -qq
     sudo -n apt-get -o Acquire::Retries=3 -o Acquire::https::Timeout=30 -o Acquire::http::Timeout=30 -o DPkg::Lock::Timeout=120 install -y --no-install-recommends build-essential
   fi
+  record_toolchain_metric "Go" "$go_version" "$go_source" "$(format_duration_ms "$go_start" "$(now_ms)")"
 fi
 printf 'NPM_CONFIG_REGISTRY=https://registry.npmjs.org\npnpm_config_registry=https://registry.npmjs.org\n' >> "$GITHUB_ENV"
-printf 'Node: %s; pnpm: %s\n' "$(node --version)" "$(pnpm --version)"
-if [[ -n "${GO_VERSION_FILE:-}" ]]; then GOTOOLCHAIN=local go version; fi
+printf 'Node: %s (%s); pnpm: %s (%s)\n' "$(node --version)" "$node_source" "$(pnpm --version)" "$pnpm_source"
+if [[ -n "${GO_VERSION_FILE:-}" ]]; then printf 'Go: %s (%s)\n' "$(GOTOOLCHAIN=local go version)" "$go_source"; fi

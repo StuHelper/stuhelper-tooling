@@ -26,6 +26,6 @@ await reported(process.argv[2] || 'check', async () => {
     else assert.deepEqual(JSON.parse(fs.readFileSync('locale-policy.json', 'utf8')), source, 'Generated locale-policy.json differs; run stuhelper-check locale-policy --write');
   }
   else if (command === 'staged') await checkStaged(process.cwd(), { eslint: values.eslint });
-  else if (command === 'workflows') execFileSync('actionlint', ['-color', '-shellcheck=', '-pyflakes='], { stdio: 'inherit' });
+  else if (command === 'workflows') execFileSync('actionlint', [...(process.stdout.isTTY || process.env.GITHUB_ACTIONS === 'true' ? ['-color'] : []), '-shellcheck=', '-pyflakes='], { stdio: 'inherit' });
   else throw new Error('Use repository, docs [--glossary FILE], i18n, locale-policy [--write], staged [--eslint], or workflows.');
 });

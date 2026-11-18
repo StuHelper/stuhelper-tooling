@@ -13,6 +13,9 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: Initialize toolchain metrics
+      shell: bash
+      run: bash "$GITHUB_ACTION_PATH/summary.sh" init
     - name: Prepare declared toolchains
       shell: bash
       env:
@@ -26,3 +29,7 @@ runs:
       if: inputs.postgres == 'true'
       shell: bash
       run: bash "$GITHUB_ACTION_PATH/postgres.sh"
+    - name: Summarize toolchain environment
+      if: always()
+      shell: bash
+      run: bash "$GITHUB_ACTION_PATH/summary.sh" flush
