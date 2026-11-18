@@ -81,8 +81,8 @@ NODE
   [[ "$(GOTOOLCHAIN=local go version)" == "go version go$go_version "* ]]
   printf 'GOTOOLCHAIN=local\n' >> "$GITHUB_ENV"
   if ! command -v gcc >/dev/null || ! command -v make >/dev/null; then
-    sudo -n apt-get -o Acquire::Retries=3 -o Acquire::https::Timeout=30 -o Acquire::http::Timeout=30 -o DPkg::Lock::Timeout=120 update -qq
-    sudo -n apt-get -o Acquire::Retries=3 -o Acquire::https::Timeout=30 -o Acquire::http::Timeout=30 -o DPkg::Lock::Timeout=120 install -y --no-install-recommends build-essential
+    sudo -n env DEBIAN_FRONTEND=noninteractive apt-get -o Acquire::Retries=3 -o Acquire::https::Timeout=30 -o Acquire::http::Timeout=30 -o DPkg::Lock::Timeout=120 update -qq
+    sudo -n env DEBIAN_FRONTEND=noninteractive apt-get -o Acquire::Retries=3 -o Acquire::https::Timeout=30 -o Acquire::http::Timeout=30 -o DPkg::Lock::Timeout=120 install -y --no-install-recommends build-essential
   fi
 fi
 printf 'NPM_CONFIG_REGISTRY=https://registry.npmjs.org\npnpm_config_registry=https://registry.npmjs.org\n' >> "$GITHUB_ENV"
