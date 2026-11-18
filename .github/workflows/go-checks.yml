@@ -10,6 +10,10 @@ on:
         description: Stable required check name
         type: string
         default: Go checks
+      postgres:
+        description: Install or reuse PostgreSQL server and client meta-packages
+        type: string
+        default: 'false'
       setup-command:
         description: Optional setup after dependency installation, such as isolated database tools
         type: string
@@ -18,6 +22,9 @@ on:
         description: The same standalone repository check command used locally
         type: string
         default: make check
+    secrets:
+      modules-read-token:
+        required: false
 permissions:
   contents: read
 jobs:
@@ -35,9 +42,38 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
+      - name: Validate PostgreSQL option and process identity
+        env:
+          POSTGRES_INPUT: ${{ inputs.postgres }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$POSTGRES_INPUT" =~ ^(true|false)$ ]]
+          if [[ "$POSTGRES_INPUT" == "true" && ( -z "${USER:-}" || -z "${LOGNAME:-}" ) ]]; then
+            identity=$(id -un)
+            printf 'USER=%s\nLOGNAME=%s\n' "$identity" "$identity" >> "$GITHUB_ENV"
+          fi
       - uses: StuHelper/stuhelper-tooling/actions/setup@v0.1.8
         with:
           go-version-file: .go-version
+          postgres: ${{ inputs.postgres }}
+      - name: Download private Go dependencies
+        env:
+          GH_TOKEN: ${{ secrets.modules-read-token }}
+          GIT_CONFIG_GLOBAL: ${{ runner.temp }}/go-modules.gitconfig
+          GOPRIVATE: github.com/StuHelper/*
+          REPOSITORY_PRIVATE: ${{ github.event.repository.private }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${GH_TOKEN:-}" ]]; then exit 0; fi
+          if [[ "${REPOSITORY_PRIVATE:-true}" != "true" ]]; then
+            echo 'Public repositories must not use modules-read-token.' >&2
+            exit 1
+          fi
+          printf 'GOPRIVATE=github.com/StuHelper/*\n' >> "$GITHUB_ENV"
+          gh auth setup-git --hostname github.com
+          go mod download
       - name: Install locked tools
         run: pnpm install --frozen-lockfile
       - name: Prepare the module
@@ -49,3 +85,7 @@ jobs:
         env:
           CHECK_COMMAND: ${{ inputs.check-command }}
         run: bash -euo pipefail -c "$CHECK_COMMAND"
+      - name: Remove temporary credential helper
+        if: always()
+        shell: bash
+        run: rm -f -- "$RUNNER_TEMP/go-modules.gitconfig"

@@ -40,7 +40,22 @@ pnpm 从 registry.npmjs.org 获取并核验 SHA-512。actionlint 使用固定发
 
 actionlint 压缩包和校验清单的下载最多四次请求，总重试窗口 120 秒，每次连接限十秒、传输限三十秒。连接重置与 TLS 错误同样重试，最终失败使检查失败。完整下载后才发布临时文件，并继续验证 SHA-256，不修改共享网络或跳过检查。
 
-go-checks.yml 支持 setup-command 和 check-command：前者在依赖安装后准备数据库等检查工具，后者默认为 make check，可指定仓库的隔离 PostgreSQL 检查脚本。命令失败立即使检查失败，正式 Go 检查始终使用 GOWORK=off。
+`go-checks.yml` 支持 `postgres`、`setup-command`、`check-command` 与可选的 `secrets.modules-read-token`。正式 Go 检查始终使用 `GOWORK=off`，任一步骤失败立即终止作业。
+
+启用 `postgres: 'true'` 时由 `actions/setup` 准备 PostgreSQL 并导出 `STUHELPER_TEST_PG_BIN`。私有仓库传入 `modules-read-token` 时使用临时 `GIT_CONFIG_GLOBAL` 拉取私有模块，并在 `always()` 步骤删除凭据文件。
+
+```yaml
+jobs:
+  check:
+    uses: StuHelper/stuhelper-tooling/.github/workflows/go-checks.yml@v0.1.9
+    with:
+      name: Backend checks
+      runs-on: '{"group":"stuhelper-arc","labels":"stuhelper-arc-sh-k8s"}'
+      postgres: 'true'
+      check-command: bash scripts/check-with-postgres.sh
+    secrets:
+      modules-read-token: ${{ secrets.MODULES_READ_TOKEN }}
+```
 
 调用方 job ID 使用 check，并通过 name 指定检查名称，例如 Platform checks，对应必需检查 check / Platform checks。
 
