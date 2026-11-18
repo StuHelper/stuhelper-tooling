@@ -65,7 +65,7 @@ export function check(directory) {
     const text = fs.readFileSync(file, 'utf8');
     const calls = [...text.matchAll(/\b\$?t\(\s*['"]([^'"]+)['"]/g)].map(match => match[1]);
     const metadata = admin ? [...text.matchAll(/['"]((?:page|common|authentication|preferences|ui|profile)\.[\w.]+)['"]/g)].map(match => match[1]) : [];
-    for (const key of [...calls, ...metadata]) assert(Object.hasOwn(known, key), `Unknown message key: ${path.relative(directory, file)} -> ${key}`);
+    for (const key of [...calls, ...metadata]) assert(Object.hasOwn(known, key), `${path.relative(directory, file)}: Unknown message key: ${key}`);
   }
   assert.equal(policy.default, 'zh-CN');
   for (const locale of languages) {
