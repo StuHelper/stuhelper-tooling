@@ -76,14 +76,14 @@ jobs:
                 test "$name" != backend || name=stuhelper-backend
                 go build -mod=readonly -trimpath -ldflags='-s -w' -o "$payload/$name" "./$directory"
               done
-              test -s "$payload/stuhelper-backend" && test -x "$payload/stuhelper-backend" || { echo "Missing backend executable" >&2; exit 1; }
+              [[ -f "$payload/stuhelper-backend" && -s "$payload/stuhelper-backend" && -x "$payload/stuhelper-backend" ]] || { echo "Missing backend executable" >&2; exit 1; }
               ;;
             campus-adapters)
               python3 scripts/prepare-oracle-driver.py
               expected="$VERSION@$(git rev-parse HEAD)"
               bash scripts/build-oracle-sync.sh "$payload/stuhelper-oracle-sync" "$expected"
               "$payload/stuhelper-oracle-sync" --mode=version |
-                jq -e --arg expected "$expected" '.source_version == $expected' > /dev/null
+                jq -se --arg expected "$expected" 'length == 1 and .[0].source_version == $expected' > /dev/null
               ;;
             web|admin)
               pnpm install --frozen-lockfile
@@ -91,7 +91,7 @@ jobs:
               pnpm run build
               directory=dist
               if test "$APPLICATION" = admin; then directory=apps/web-antd/dist; fi
-              test -s "$directory/index.html" || { echo "Missing $directory/index.html" >&2; exit 1; }
+              [[ -f "$directory/index.html" && -s "$directory/index.html" ]] || { echo "Missing $directory/index.html" >&2; exit 1; }
               cp -a "$directory/." "$payload/"
               ;;
           esac

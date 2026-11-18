@@ -34,14 +34,27 @@ test('release passes tag and actual commit to the source builder and refuses fai
   assert.deepEqual(fs.readdirSync(path.join(runtime, 'release-output')), []);
 });
 
-for (const application of ['backend', 'web', 'admin', 'campus-adapters']) {
-  test(application + ' rejects a missing entry or incorrect source version before archiving', t => {
+for (const [application, defect] of [
+  ['backend', 'missing entry'], ['web', 'empty dist'], ['admin', 'empty dist'],
+  ['web', 'directory as entry'], ['campus-adapters', 'incorrect version'], ['campus-adapters', 'multiple versions'],
+]) {
+  test(application + ' rejects ' + defect + ' before archiving', t => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'payload-check-'));
     t.after(() => fs.rmSync(root, { recursive: true }));
     for (const dir of ['bin', 'scripts', 'dist', 'apps/web-antd/dist']) fs.mkdirSync(path.join(root, dir), { recursive: true });
     for (const name of ['pnpm', 'gh']) fs.writeFileSync(path.join(root, 'bin', name), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
     fs.writeFileSync(path.join(root, 'scripts/prepare-oracle-driver.py'), '');
     fs.writeFileSync(path.join(root, 'scripts/build-oracle-sync.sh'), `printf '%s\\n' '#!/bin/sh' 'echo "{\\"source_version\\":\\"wrong\\"}"' > "$1"\nchmod +x "$1"\n`);
+    if (defect === 'directory as entry') fs.mkdirSync(path.join(root, 'dist/index.html'));
+    if (defect === 'multiple versions') {
+      fs.writeFileSync(path.join(root, 'scripts/build-oracle-sync.sh'), `#!/bin/bash
+cat > "$1" <<EOF
+#!/bin/sh
+echo '{"source_version":"other"}'
+echo '{"source_version":"$2"}'
+EOF
+chmod +x "$1"`);
+    }
     fs.writeFileSync(path.join(root, 'LICENSE'), 'fixture');
     execFileSync('git', ['init', '-q'], { cwd: root });
     execFileSync('git', ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '--allow-empty', '-qm', 'fixture'], { cwd: root });
