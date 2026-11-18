@@ -23,7 +23,7 @@ jobs:
       CGO_ENABLED: '0'
       LEFTHOOK: '0'
     steps:
-      - uses: StuHelper/stuhelper-tooling/actions/release-assets@v0.1.10
+      - uses: StuHelper/stuhelper-tooling/actions/release-assets@v0.1.11
         with:
           application: ${{ inputs.application }}
           version: ${{ inputs.version }}

@@ -4,9 +4,6 @@ inputs:
   version:
     description: Release tag
     default: ''
-  registry:
-    description: Target registry
-    default: ''
   registry-user:
     description: Registry username
     default: ''
@@ -26,7 +23,14 @@ runs:
         printf 'DOCKER_CONFIG=%s\n' "$auth_directory" >> "$GITHUB_ENV"
         [[ "$APPLICATION" =~ ^(backend|web|admin)$ ]]
         [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?$ ]]
+        if [[ "$RUNNER_ENVIRONMENT" == self-hosted ]]; then
+          REGISTRY=${STUHELPER_OCI_REGISTRY:?Configure the site registry before publishing a private application image}
+        else
+          REGISTRY=ghcr.io
+        fi
         [[ "$REGISTRY" =~ ^[a-zA-Z0-9][a-zA-Z0-9.:-]+$ ]]
+        printf 'registry=%s\n' "$REGISTRY" >> "$GITHUB_OUTPUT"
+        printf 'REGISTRY=%s\n' "$REGISTRY" >> "$GITHUB_ENV"
         if [[ "$RUNNER_ENVIRONMENT" == self-hosted ]]; then
           [[ "${BUILDKIT_HOST:-}" =~ ^tcp://[A-Za-z0-9][A-Za-z0-9.-]*:[1-9][0-9]{0,4}$ ]]
           printf 'buildkit-endpoint=%s\n' "$BUILDKIT_HOST" >> "$GITHUB_OUTPUT"
@@ -51,7 +55,7 @@ runs:
         cleanup: true
     - uses: docker/login-action@v4.7.0
       with:
-        registry: ${{ inputs.registry }}
+        registry: ${{ steps.runtime.outputs.registry }}
         username: ${{ inputs.registry-user }}
         password: ${{ inputs.registry-password }}
     - name: Build and publish fixed source

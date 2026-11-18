@@ -23,12 +23,10 @@ jobs:
     env:
       APPLICATION: ${{ inputs.application }}
       VERSION: ${{ inputs.version }}
-      REGISTRY: ghcr.io
       IMAGE_PATH: stuhelper/stuhelper-${{ inputs.application }}
     steps:
-      - uses: StuHelper/stuhelper-tooling/actions/publish-image@v0.1.10
+      - uses: StuHelper/stuhelper-tooling/actions/publish-image@v0.1.11
         with:
           version: ${{ inputs.version }}
-          registry: ${{ env.REGISTRY }}
           registry-user: ${{ github.actor }}
           registry-password: ${{ github.token }}

@@ -17,10 +17,10 @@ runs:
       with:
         persist-credentials: false
         fetch-depth: 0
-    - uses: StuHelper/stuhelper-tooling/actions/setup@v0.1.10
+    - uses: StuHelper/stuhelper-tooling/actions/setup@v0.1.11
       with:
         go-version-file: ${{ inputs.go-version-file }}
-    - uses: StuHelper/stuhelper-tooling/actions/frontend-cache@v0.1.10
+    - uses: StuHelper/stuhelper-tooling/actions/frontend-cache@v0.1.11
       if: runner.environment == 'github-hosted' && hashFiles('**/vite.config.*') != ''
     - name: Install locked tools
       shell: bash
