@@ -1,0 +1,38 @@
+name: Run the repository checks
+description: Run the repository checks
+inputs:
+  go-version-file:
+    description: Optional repository Go version file
+    default: ''
+  setup-command:
+    description: Optional preparation command
+    default: ''
+  check-command:
+    description: Repository check command
+    default: 'make check'
+runs:
+  using: composite
+  steps:
+    - uses: actions/checkout@v7.0.1
+      with:
+        persist-credentials: false
+        fetch-depth: 0
+    - uses: StuHelper/stuhelper-tooling/actions/setup@v0.1.10
+      with:
+        go-version-file: ${{ inputs.go-version-file }}
+    - uses: StuHelper/stuhelper-tooling/actions/frontend-cache@v0.1.10
+      if: runner.environment == 'github-hosted' && hashFiles('**/vite.config.*') != ''
+    - name: Install locked tools
+      shell: bash
+      run: pnpm install --frozen-lockfile
+    - name: Prepare repository checks
+      if: inputs.setup-command != ''
+      shell: bash
+      env:
+        COMMAND: ${{ inputs.setup-command }}
+      run: bash -euo pipefail -c "$COMMAND"
+    - name: Check repository
+      shell: bash
+      env:
+        COMMAND: ${{ inputs.check-command }}
+      run: bash -euo pipefail -c "$COMMAND"

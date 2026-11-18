@@ -1,0 +1,35 @@
+name: Publish application release assets
+on:
+  workflow_call:
+    inputs:
+      application:
+        required: true
+        type: string
+      version:
+        description: Existing annotated tag on main
+        required: true
+        type: string
+    secrets:
+      modules-read-token:
+        required: false
+permissions:
+  contents: write
+jobs:
+  publish:
+    name: Release assets
+    if: github.event.repository.private
+    runs-on:
+      group: stuhelper-arc
+    timeout-minutes: 45
+    env:
+      APPLICATION: ${{ inputs.application }}
+      VERSION: ${{ inputs.version }}
+      GOWORK: 'off'
+      CGO_ENABLED: '0'
+      LEFTHOOK: '0'
+    steps:
+      - uses: StuHelper/stuhelper-tooling/actions/release-assets@v0.1.10
+        with:
+          application: ${{ inputs.application }}
+          version: ${{ inputs.version }}
+          modules-read-token: ${{ secrets.modules-read-token }}

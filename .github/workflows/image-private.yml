@@ -1,0 +1,39 @@
+name: Publish application image
+on:
+  workflow_call:
+    inputs:
+      application:
+        description: Application repository suffix
+        required: true
+        type: string
+      version:
+        description: Existing annotated release tag on main
+        required: true
+        type: string
+    secrets:
+      registry-user:
+        required: true
+      registry-password:
+        required: true
+permissions:
+  contents: read
+jobs:
+  publish:
+    name: Application image
+    if: github.event.repository.private && github.event_name != 'pull_request' && github.event_name != 'pull_request_target'
+    runs-on:
+      group: stuhelper-arc
+    timeout-minutes: 45
+    environment: release
+    env:
+      APPLICATION: ${{ inputs.application }}
+      VERSION: ${{ inputs.version }}
+      IMAGE_PATH: stuhelper-next/${{ inputs.application }}
+      REGISTRY: ${{ vars.OCI_REGISTRY }}
+    steps:
+      - uses: StuHelper/stuhelper-tooling/actions/publish-image@v0.1.10
+        with:
+          version: ${{ inputs.version }}
+          registry: ${{ env.REGISTRY }}
+          registry-user: ${{ secrets.registry-user }}
+          registry-password: ${{ secrets.registry-password }}
