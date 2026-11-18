@@ -1,3 +1,5 @@
+import { extractMessageKeys } from './message-keys.mjs';
+export { extractMessageKeys, stripSourceComments } from './message-keys.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -15,18 +17,18 @@ export function flatten(value, prefix = '', output = Object.create(null)) {
   }
   return output;
 }
-const formsOf = value => value.replaceAll("{'|'}", '∣').split('|');
-
+const pluralOrder = ['zero', 'one', 'two', 'few', 'many', 'other'];
+const pluralForms = value => value.replace(/\{\s*(['"])\|\1\s*\}/g, '\0').split('|').map(form => form.replaceAll('\0', "{'|'}"));
+const placeholders = value => [...new Set([...value.replace(/\{\s*(['"])\|\1\s*\}/g, '').matchAll(/\{\s*([\w]+)\s*\}/g)].map(match => match[1]))].sort();
 export function validateCatalogues(catalogues, languages, exceptions = {}) {
   assert.deepEqual(Object.keys(catalogues).sort(), [...languages].sort(), 'Locale catalogues must cover every configured language');
+  const pluralKeys = new Set(Object.values(catalogues).flatMap(catalogue => Object.entries(flatten(catalogue)).filter(([, value]) => pluralForms(value).length > 1).map(([key]) => key)));
   const baseline = flatten(catalogues['zh-CN']);
   const english = catalogues['en-US'] ? flatten(catalogues['en-US']) : {};
   for (const allowed of [exceptions.shared ?? {}, ...Object.values(exceptions.languages ?? {})]) for (const [key, rule] of Object.entries(allowed)) {
     assert(Object.hasOwn(english, key), `Unknown same-text exception: ${key}`);
     assert(typeof rule.value === 'string' && rule.reason?.trim(), `Same-text exception needs a value and reason: ${key}`);
   }
-  const pluralKeys = new Set(Object.values(catalogues).flatMap(catalogue => Object.entries(flatten(catalogue)).filter(([, value]) => formsOf(value).length > 1).map(([key]) => key)));
-  const placeholders = value => [...new Set([...value.matchAll(/\{\s*([\w]+)\s*\}/g)].map(match => match[1]))].sort();
   for (const language of languages) {
     const entries = flatten(catalogues[language]);
     assert.deepEqual(Object.keys(entries).sort(), Object.keys(baseline).sort(), `Missing or extra message in ${language}`);
@@ -35,13 +37,22 @@ export function validateCatalogues(catalogues, languages, exceptions = {}) {
         const rule = exceptions.languages?.[language]?.[key] ?? exceptions.shared?.[key];
         assert(rule?.value === value, `Unreviewed English text: ${language}/${key}`);
       }
-      assert.deepEqual(placeholders(value), placeholders(baseline[key]), `Interpolation mismatch: ${language}/${key}`);
-      if (pluralKeys.has(key)) {
-        const expected = new Intl.PluralRules(language).resolvedOptions().pluralCategories.length;
-        const forms = formsOf(value);
-        assert(forms.every(form => form.trim()), `Empty plural form: ${language}/${key}`);
-        assert.equal(forms.length, expected, `Plural categories incomplete: ${language}/${key}`);
-        for (const form of forms) assert.deepEqual(placeholders(form), placeholders(value), `Missing plural interpolation: ${language}/${key}`);
+      if (!pluralKeys.has(key)) {
+        assert.deepEqual(placeholders(value), placeholders(baseline[key]), `Interpolation mismatch: ${language}/${key}`);
+      } else {
+        const baseVars = placeholders(baseline[key]);
+        const baseSet = new Set(baseVars);
+        const categories = pluralOrder.filter(category => new Intl.PluralRules(language).resolvedOptions().pluralCategories.includes(category));
+        const forms = pluralForms(value);
+        assert.equal(forms.length, categories.length, `Plural categories incomplete: ${language}/${key}`);
+        for (const [index, form] of forms.entries()) {
+          assert(form.trim(), `Empty plural branch: ${language}/${key}`);
+          const formVars = placeholders(form);
+          for (const variable of formVars) assert(baseSet.has(variable), `Interpolation mismatch: ${language}/${key}`);
+          if (categories[index] === 'many' || categories[index] === 'other') {
+            assert.deepEqual(formVars, baseVars, `Missing plural interpolation: ${language}/${key}`);
+          }
+        }
       }
     }
   }
@@ -103,9 +114,8 @@ export function check(directory) {
     const sharedPackage = admin && path.relative(directory, file).startsWith('packages' + path.sep);
     if (sharedPackage
         && !/\bfrom\s*['"](?:@vben\/locales|vue-i18n)['"]/.test(text)) continue;
-    const calls = [...text.matchAll(/\b\$?t\(\s*['"]([^'"]+)['"]/g)].map(match => match[1]);
-    const metadata = admin && !sharedPackage ? [...text.matchAll(/['"]([\w-]+\.[\w.-]+)['"]/g)].map(match => match[1]).filter(key => namespaces.has(key.split('.')[0])) : [];
-    for (const key of [...calls, ...metadata]) assert(Object.hasOwn(known, key), `${path.relative(directory, file)}: Unknown message key: ${key}`);
+    const keys = extractMessageKeys(text, { isVue: file.endsWith('.vue'), admin: admin && !sharedPackage, namespaces });
+    for (const key of keys) assert(Object.hasOwn(known, key), `${path.relative(directory, file)}: Unknown message key: ${key}`);
   }
   for (const locale of languages) {
     assert(Intl.NumberFormat.supportedLocalesOf([locale]).length, `Number locale unavailable: ${locale}`);
