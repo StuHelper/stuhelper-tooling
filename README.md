@@ -62,7 +62,7 @@ StuHelper 自建 Kubernetes runner 通过 `BUILDKIT_HOST` 提供远端 BuildKit�
 
 Registry 认证使用任务临时目录，清理目标来自创建步骤的明确输出。创建前失败或取消时不删除 runner 继承的 Docker 配置。
 
-应用附件发行使用 `release.yml`，接收 backend、web、admin 或 campus-adapters 以及 main 上既有的注释 tag。普通 runner 构建压缩包、许可证、构建来源与 SHA256SUMS，上传后重新下载校验。已存在同名附件时拒绝覆盖。
+应用附件发行使用 `release.yml`，接收 backend、web、admin 或 campus-adapters 以及 main 上既有的注释 tag。发行仅接受 main 或对应 tag 上的非 PR 事件，并绑定 release 环境。写令牌仅传给附件发布步骤。普通 runner 构建压缩包、许可证、构建来源与 SHA256SUMS，上传后重新下载校验。已存在同名附件时拒绝覆盖。
 
 Go 构建使用 GOWORK=off、CGO_ENABLED=0 和仓库声明的工具链。backend 通过 modules-read-token 下载私有依赖。历史 tag 可由调用方 workflow_dispatch 指定，不移动源码 tag。附件永久保留，每个附件小于 2 GiB，不启用 Actions artifact 或共享缓存。
 

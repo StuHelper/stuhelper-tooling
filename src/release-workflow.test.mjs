@@ -33,3 +33,19 @@ test('release passes tag and actual commit to the source builder and refuses fai
   assert(!fs.existsSync(path.join(runtime, 'unverified-upload')));
   assert.deepEqual(fs.readdirSync(path.join(runtime, 'release-output')), []);
 });
+
+test('release authorization is restricted to protected publishing and never exported to build steps', () => {
+  const job = workflow.jobs.publish;
+  assert.equal(job.environment, 'release');
+  assert.equal(job.permissions.contents, 'write');
+  assert.notEqual(workflow.permissions?.contents, 'write');
+  assert.match(job.if, /github\.event_name != 'pull_request'/);
+  assert.match(job.if, /github\.event_name != 'pull_request_target'/);
+  assert.equal(job.env.GH_TOKEN, undefined);
+  const writers = job.steps.filter(step => step.env?.GH_TOKEN?.includes('github.token'));
+  assert.equal(writers.length, 1);
+  assert.match(writers[0].run, /gh release upload/);
+  assert.doesNotMatch(writers[0].run, /pnpm |go build|scripts\//);
+  assert.equal(build.env?.GH_TOKEN, undefined);
+  assert.ok(job.steps.indexOf(writers[0]) > job.steps.indexOf(build));
+});
