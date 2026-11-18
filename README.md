@@ -64,6 +64,8 @@ Registry 认证使用任务临时目录，清理目标来自创建步骤的明�
 
 应用附件发行使用 `release.yml`，接收 backend、web、admin 或 campus-adapters 以及 main 上既有的注释 tag。普通 runner 构建压缩包、许可证、构建来源与 SHA256SUMS，上传后重新下载校验。已存在同名附件时拒绝覆盖。
 
+打包前检查 backend 的主程序可执行且非空，Web 与 Admin 的入口 index.html 必须非空。共享工作流还会读取同步工具的版本 JSON，核对 source_version。
+
 Go 构建使用 GOWORK=off、CGO_ENABLED=0 和仓库声明的工具链。backend 通过 modules-read-token 下载私有依赖。历史 tag 可由调用方 workflow_dispatch 指定，不移动源码 tag。附件永久保留，每个附件小于 2 GiB，不启用 Actions artifact 或共享缓存。
 
 campus-adapters 通过提供方 scripts/build-oracle-sync.sh 构建同步工具，注入 tag@完整源码 SHA。构建后以 --mode=version 回读核对，错误时停止发行。已存在批次保留原 source_version，新版本只影响后续生成的批次。

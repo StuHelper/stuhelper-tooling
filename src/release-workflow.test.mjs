@@ -33,3 +33,41 @@ test('release passes tag and actual commit to the source builder and refuses fai
   assert(!fs.existsSync(path.join(runtime, 'unverified-upload')));
   assert.deepEqual(fs.readdirSync(path.join(runtime, 'release-output')), []);
 });
+
+for (const application of ['backend', 'web', 'admin', 'campus-adapters']) {
+  test(application + ' rejects a missing entry or incorrect source version before archiving', t => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'payload-check-'));
+    t.after(() => fs.rmSync(root, { recursive: true }));
+    for (const dir of ['bin', 'scripts', 'dist', 'apps/web-antd/dist']) fs.mkdirSync(path.join(root, dir), { recursive: true });
+    for (const name of ['pnpm', 'gh']) fs.writeFileSync(path.join(root, 'bin', name), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+    fs.writeFileSync(path.join(root, 'scripts/prepare-oracle-driver.py'), '');
+    fs.writeFileSync(path.join(root, 'scripts/build-oracle-sync.sh'), `printf '%s\\n' '#!/bin/sh' 'echo "{\\"source_version\\":\\"wrong\\"}"' > "$1"\nchmod +x "$1"\n`);
+    fs.writeFileSync(path.join(root, 'LICENSE'), 'fixture');
+    execFileSync('git', ['init', '-q'], { cwd: root });
+    execFileSync('git', ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '--allow-empty', '-qm', 'fixture'], { cwd: root });
+    const result = spawnSync('bash', ['-c', build.run], { cwd: root, encoding: 'utf8',
+      env: { PATH: root + '/bin:' + process.env.PATH, APPLICATION: application, VERSION: 'v1.2.3', RUNNER_TEMP: root } });
+    assert.notEqual(result.status, 0);
+    assert.deepEqual(fs.readdirSync(path.join(root, 'release-output')), []);
+  });
+}
+
+test('complete static entry reaches packaging with its original content', t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'valid-payload-'));
+  t.after(() => fs.rmSync(root, { recursive: true }));
+  for (const dir of ['dist', 'bin']) fs.mkdirSync(path.join(root, dir));
+  fs.writeFileSync(path.join(root, 'dist/index.html'), '<main>fixture</main>');
+  fs.writeFileSync(path.join(root, 'LICENSE'), 'fixture license');
+  fs.writeFileSync(path.join(root, 'bin/pnpm'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+  fs.writeFileSync(path.join(root, 'bin/gh'), '#!/bin/sh\nexit 17\n', { mode: 0o755 });
+  execFileSync('git', ['init', '-q'], { cwd: root });
+  execFileSync('git', ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '--allow-empty', '-qm', 'fixture'], { cwd: root });
+  const r = spawnSync('bash', ['-c', build.run], { cwd: root, encoding: 'utf8', env: {
+    PATH: root + '/bin:' + process.env.PATH, APPLICATION: 'web', VERSION: 'v1.2.3', RUNNER_TEMP: root,
+    GITHUB_REPOSITORY: 'fixture/web', GITHUB_SERVER_URL: 'https://example.invalid', GITHUB_RUN_ID: '1', GITHUB_WORKFLOW_REF: 'fixture/workflow',
+  } });
+  // Older workflows include the publish step in build.run, where the fixture gh stops it.
+  assert.ok([0, 17].includes(r.status), r.stderr);
+  const archive = path.join(root, 'release-output/stuhelper-web-v1.2.3.tar.gz');
+  assert.equal(execFileSync('tar', ['-xOzf', archive, './index.html'], { encoding: 'utf8' }), '<main>fixture</main>');
+});
