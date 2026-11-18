@@ -8,12 +8,15 @@ export function privateMaterialErrors(file) {
   const extension = path.extname(file).toLowerCase();
   const errors = [];
   if ((name.startsWith('.env') || extension === '.env') && !name.endsWith('.example')) errors.push(`${file}: runtime environment file`);
+  if (/(?:^|\/)(?:secrets|private)\//i.test(file)) errors.push(`${file}: private material directory`);
+  if (/\.(?:dump|backup)\.|\.sqlite/i.test(name)) errors.push(`${file}: database or backup file`);
   if (['.pem', '.key', '.p12', '.pfx', '.dump', '.backup'].includes(extension)) errors.push(`${file}: private material extension`);
   return errors;
 }
 
 export function checkSource(file, source, executable = false) {
   const errors = privateMaterialErrors(file);
+  if (/^-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY-----\s*$/m.test(source)) errors.push(`${file}: private key material`);
   try {
     if (file.endsWith('.json')) JSON.parse(source);
     if (/\.ya?ml$/.test(file)) {
@@ -21,10 +24,12 @@ export function checkSource(file, source, executable = false) {
       if (doc.errors.length) throw new Error(doc.errors.map(error => error.message).join('; '));
     }
   } catch (error) { errors.push(`${file}: ${error.message}`); }
-  if (/\.(?:mjs|js|py|sh)$/.test(file)) {
-    if (source.startsWith('#!') && !executable) errors.push(`${file}: a direct script entry needs the executable bit in Git`);
-    if (executable && !source.startsWith('#!')) errors.push(`${file}: executable script needs a shebang`);
-  }
+  const entry = /(?:^|\/)bin\/[^/.]+$/.test(file);
+  const script = entry || /\.(?:mjs|js|py|sh)$/.test(file);
+  const shebang = source.startsWith('#!');
+  if (script && shebang && !executable) errors.push(`${file}: a direct script entry needs the executable bit in Git`);
+  if ((entry || executable) && !shebang) errors.push(`${file}: executable script needs a shebang`);
+  if (executable && shebang && /\.(?:go|json|md|markdown|ya?ml)$/.test(file)) errors.push(`${file}: ordinary source must not be executable`);
   return errors;
 }
 
@@ -38,9 +43,11 @@ export function checkRepository(root) {
     const location = path.join(root, file);
     if (!fs.existsSync(location) || !fs.lstatSync(location).isFile()) continue;
     const source = fs.readFileSync(location);
-    if (source.includes(0)) { errors.push(...privateMaterialErrors(file)); continue; }
     const executable = modes.has(file) ? modes.get(file) === '100755' : Boolean(fs.statSync(location).mode & 0o111);
-    errors.push(...checkSource(file, source.toString('utf8'), executable));
+    if (source.includes(0)) {
+      errors.push(...privateMaterialErrors(file));
+      if (executable && /\.(?:go|ts|json|md|markdown|ya?ml|mjs|js|py|sh)$/.test(file)) errors.push(`${file}: ordinary source must not be executable`);
+    } else errors.push(...checkSource(file, source.toString('utf8'), executable));
   }
   if (errors.length) throw new Error(errors.join('\n'));
   return files.length;

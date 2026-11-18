@@ -11,10 +11,22 @@ import { lintMarkdown } from '../src/docs/lint-markdown.mjs';
 import { check as checkI18n } from '../src/i18n/check-i18n.mjs';
 import { checkStaged } from '../src/staged.mjs';
 
-await reported(process.argv[2] || 'check', async () => {
-  const { positionals, values } = parseArgs({ allowPositionals: true, options: { glossary: { type: 'string' }, eslint: { type: 'boolean', default: false }, write: { type: 'boolean', default: false } } });
-  const [command] = positionals;
-  if (values.write && command !== 'locale-policy') throw new Error('--write is only supported by locale-policy');
+let parsed;
+try {
+  parsed = parseArgs({ allowPositionals: true, options: {
+    glossary: { type: 'string' }, eslint: { type: 'boolean' }, write: { type: 'boolean' },
+  } });
+} catch (error) {
+  await reported('check', () => { throw error; });
+}
+
+if (parsed) await reported(parsed.positionals[0] || 'check', async () => {
+  const { positionals: [command, ...extra], values } = parsed;
+  if (extra.length) throw new Error('Unexpected positional argument');
+  const owners = { glossary: 'docs', eslint: 'staged', write: 'locale-policy' };
+  for (const name of Object.keys(values)) {
+    if (owners[name] !== command) throw new Error(`--${name} is only supported by ${owners[name]}`);
+  }
   if (command === 'repository') checkRepository(process.cwd());
   else if (command === 'docs') {
     const errors = [...await lintMarkdown(process.cwd()), ...checkDocs(process.cwd(), { glossary: values.glossary }).errors];
