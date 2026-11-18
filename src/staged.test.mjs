@@ -54,3 +54,35 @@ test('first commit can validate staged files without HEAD', async t => {
   execFileSync('git', ['add', 'data.json'], { cwd: root });
   await checkStaged(root);
 });
+
+test('deleting a document revalidates references left in the index', async t => {
+  const { root, git } = repository(t);
+  fs.writeFileSync(path.join(root, '.markdownlint-cli2.yaml'), "globs: ['**/*.md']\nignores: ['.git/**']\n");
+  fs.writeFileSync(path.join(root, 'README.md'), '# Index\n\n[Topic](topic.md)\n');
+  fs.writeFileSync(path.join(root, 'topic.md'), '# Topic\n');
+  git('add', '.'); git('commit', '-m', 'documents'); git('rm', 'topic.md');
+  await assert.rejects(checkStaged(root), /missing or external local target: topic.md/);
+  assert.equal(git('status', '--porcelain').trimEnd(), 'D  topic.md');
+});
+test('private names on dangling links fail before their targets are inspected', async t => {
+  const { root, git } = repository(t);
+  fs.symlinkSync('missing-fixture', path.join(root, '.env'));
+  git('add', '-f', '.env');
+  const { checkRepository } = await import('./repository.mjs');
+  assert.throws(() => checkRepository(root), /\.env: runtime/);
+  await assert.rejects(checkStaged(root), /\.env: runtime/);
+  assert.equal(fs.readlinkSync(path.join(root, '.env')), 'missing-fixture');
+});
+test('hook Git environment does not override snapshot history for doc dates', async t => {
+  const { root, git } = repository(t);
+  fs.mkdirSync(path.join(root, 'docs/spec'), { recursive: true });
+  fs.writeFileSync(path.join(root, '.markdownlint-cli2.yaml'), "globs: ['**/*.md']\nignores: ['.git/**']\n");
+  fs.writeFileSync(path.join(root, 'docs/spec/topic.md'), '---\ntype: spec\nstatus: Accepted\nupdated: 2000-01-01\n---\n\n# Topic\n');
+  git('add', '.');
+  const { spawnSync } = await import('node:child_process');
+  const cli = new URL('../bin/stuhelper-check.mjs', import.meta.url);
+  const r = spawnSync(process.execPath, [cli.pathname, 'staged'], { cwd: root, encoding: 'utf8',
+    env: { ...process.env, GIT_DIR: path.join(root, '.git'), GIT_WORK_TREE: root } });
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /updated 必须不早于/);
+});
