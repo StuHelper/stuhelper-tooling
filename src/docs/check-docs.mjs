@@ -87,10 +87,12 @@ function parsedFile(file, siteDocument) {
       githubAnchors.add(githubAnchor);
       anchors.add(siteDocument ? siteSlug(text, anchors) : githubAnchor);
     }
+    let currentLine = (token.map?.[0] ?? 0) + offset + 1;
     for (const child of token.children ?? []) {
-      if (child.type === 'link_open') links.push(child.attrGet('href'));
-      if (child.type === 'image') links.push(child.attrGet('src'));
-      if (child.type === 'text') prose.push(child.content);
+      if (child.type === 'softbreak' || child.type === 'hardbreak') currentLine += 1;
+      if (child.type === 'link_open') links.push({ href: child.attrGet('href'), line: currentLine });
+      if (child.type === 'image') links.push({ href: child.attrGet('src'), line: currentLine });
+      if (child.type === 'text') prose.push({ text: child.content, line: currentLine });
     }
   });
   return { source, frontmatter, anchors, githubAnchors, links, prose, paragraphs, headings, scenarios, tableRows };
@@ -166,6 +168,7 @@ export function checkDocs(directory, { base = process.env.DOCS_BASE_REF, now = D
   for (const file of files) {
     const relative = posix(path.relative(root, file));
     const report = (message) => errors.push(`${relative}: ${message}`);
+    const reportAt = (line, message) => errors.push(`${relative}:${line}: ${message}`);
     const parsed = read(file);
     const template = path.basename(file) === 'TEMPLATE.md';
     if (relative.startsWith('docs/')) {
@@ -188,15 +191,18 @@ export function checkDocs(directory, { base = process.env.DOCS_BASE_REF, now = D
           report('invalid YAML metadata');
         }
       }
-      if (!template && parsed.prose.some((text) => placeholder.test(text))) report('unfilled prose placeholder');
+      if (!template) {
+        const unfilled = parsed.prose.find((item) => placeholder.test(item.text));
+        if (unfilled) reportAt(unfilled.line, 'unfilled prose placeholder');
+      }
     }
     if (!template) for (const paragraph of parsed.paragraphs) {
       const count = [...paragraph.text].length;
-      if (count > 200) report(`第 ${paragraph.line} 行段落有 ${count} 个可见字符，超过 200；请按主题拆分。`);
-      if (/(?:不是.{0,80}而是|不应该.{0,80}而应该|不应.{0,80}而应)/u.test(paragraph.text)) report(`第 ${paragraph.line} 行请直接描述当前规则，必要的技术对比应明确具体条件。`);
+      if (count > 200) reportAt(paragraph.line, `第 ${paragraph.line} 行段落有 ${count} 个可见字符，超过 200；请按主题拆分。`);
+      if (/(?:不是.{0,80}而是|不应该.{0,80}而应该|不应.{0,80}而应)/u.test(paragraph.text)) reportAt(paragraph.line, `第 ${paragraph.line} 行请直接描述当前规则，必要的技术对比应明确具体条件。`);
     }
     for (const { id, line } of relative.startsWith('docs/spec/') ? parsed.scenarios : []) {
-      if (scenarioOwners.has(id)) report(`第 ${line} 行场景编号 ${id} 与 ${scenarioOwners.get(id)} 重复。`);
+      if (scenarioOwners.has(id)) reportAt(line, `第 ${line} 行场景编号 ${id} 与 ${scenarioOwners.get(id)} 重复。`);
       else scenarioOwners.set(id, `${relative}:${line}`);
     }
     if (/^docs\/adr\/\d/.test(relative)) {
@@ -206,9 +212,10 @@ export function checkDocs(directory, { base = process.env.DOCS_BASE_REF, now = D
       if (number) adrOwners.set(number, relative);
     }
     if (file !== glossary) for (const [alias, canonical] of aliases) {
-      if (parsed.prose.some(text => text.includes(alias))) report(`use standard term "${canonical}" instead of "${alias}"`);
+      const hit = parsed.prose.find(item => item.text.includes(alias));
+      if (hit) reportAt(hit.line, `use standard term "${canonical}" instead of "${alias}"`);
     }
-    for (let href of parsed.links) {
+    for (let { href, line } of parsed.links) {
       let github = false;
       if (repository && href?.startsWith(`${repository}/blob/develop/`)) {
         const url = new URL(href);
@@ -223,12 +230,12 @@ export function checkDocs(directory, { base = process.env.DOCS_BASE_REF, now = D
         const pathname = decodeURIComponent((hash < 0 ? href : href.slice(0, hash)).split('?')[0]);
         const target = pathname ? path.resolve(path.dirname(file), pathname) : file;
         if (!inside(root, target) || !fs.existsSync(target) || !inside(root, fs.realpathSync(target))) {
-          report(`missing or external local target: ${href}`);
+          reportAt(line, `missing or external local target: ${href}`);
         } else if (fragment && /\.(?:md|markdown)$/i.test(target) && fs.statSync(target).isFile() && !(github ? read(target).githubAnchors : read(target).anchors).has(fragment)) {
-          report(`missing heading anchor: ${href}`);
+          reportAt(line, `missing heading anchor: ${href}`);
         }
       } catch {
-        report(`invalid local link: ${href}`);
+        reportAt(line, `invalid local link: ${href}`);
       }
     }
   }
@@ -240,7 +247,7 @@ export function checkDocs(directory, { base = process.env.DOCS_BASE_REF, now = D
       if (!description) errors.push(`${posix(path.relative(root, index))}:${row.line}: 主题描述不能为空。`);
       else if (row.cells[0].text === description) errors.push(`${posix(path.relative(root, index))}:${row.line}: 主题描述需要说明内容，不能重复标题。`);
     }
-    const listed = new Set(read(index).links.map(link => path.resolve(path.dirname(index), link.split('#')[0])));
+    const listed = new Set(read(index).links.filter(item => item.href).map(item => path.resolve(path.dirname(index), item.href.split('#')[0])));
     for (const file of files.filter(file => path.dirname(file) === path.dirname(index) && !['README.md', 'TEMPLATE.md'].includes(path.basename(file)))) {
       if (!listed.has(file)) errors.push(`${posix(path.relative(root, index))}: missing topic ${path.basename(file)}`);
     }

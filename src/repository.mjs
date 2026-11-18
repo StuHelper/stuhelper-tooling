@@ -22,8 +22,8 @@ export function checkSource(file, source, executable = false) {
     }
   } catch (error) { errors.push(`${file}: ${error.message}`); }
   if (/\.(?:mjs|js|py|sh)$/.test(file)) {
-    if (source.startsWith('#!') && !executable) errors.push(`${file}: a direct script entry needs the executable bit in Git`);
-    if (executable && !source.startsWith('#!')) errors.push(`${file}: executable script needs a shebang`);
+    if (source.startsWith('#!') && !executable) errors.push(`${file}: a direct script entry needs the executable bit in Git (run: git update-index --chmod=+x ${file})`);
+    if (executable && !source.startsWith('#!')) errors.push(`${file}: executable script needs a shebang (add #!/usr/bin/env ... or run: git update-index --chmod=-x ${file})`);
   }
   return errors;
 }

@@ -25,7 +25,12 @@ export function validateCatalogues(catalogues, languages, exceptions = {}) {
   const placeholders = value => [...new Set([...value.matchAll(/\{\s*([\w]+)\s*\}/g)].map(match => match[1]))].sort();
   for (const language of languages) {
     const entries = flatten(catalogues[language]);
-    assert.deepEqual(Object.keys(entries).sort(), Object.keys(baseline).sort(), `Missing or extra message in ${language}`);
+    const missing = Object.keys(baseline).filter(key => !Object.hasOwn(entries, key)).sort();
+    const extra = Object.keys(entries).filter(key => !Object.hasOwn(baseline, key)).sort();
+    if (missing.length || extra.length) {
+      const details = [missing.length ? `missing keys: [${missing.join(', ')}]` : '', extra.length ? `extra keys: [${extra.join(', ')}]` : ''].filter(Boolean).join('; ');
+      throw new Error(`Missing or extra message in ${language} (${details})`);
+    }
     for (const [key, value] of Object.entries(entries)) {
       if (language !== 'en-US' && value === english[key]) {
         const rule = exceptions.languages?.[language]?.[key] ?? exceptions.shared?.[key];
