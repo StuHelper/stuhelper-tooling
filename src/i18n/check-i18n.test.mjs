@@ -23,3 +23,11 @@ test('untranslated English requires an exact reviewed value, including after sou
   catalogues['en-US'].label = catalogues['fr-FR'].label = 'Changed untranslated sentence';
   assert.throws(() => validateCatalogues(catalogues, Object.keys(catalogues), exceptions), /Unreviewed English text/);
 });
+
+test('plural forms contain text and a quoted pipe is literal', () => {
+  const validate = (zh, en) => validateCatalogues({ 'zh-CN': { tip: zh }, 'en-US': { tip: en } }, ['zh-CN', 'en-US']);
+  assert.throws(() => validate('无', 'None |   '), /Empty plural/);
+  assert.equal(validate("课程 {'|'} 资料", "Course {'|'} resources"), 1);
+  assert.throws(() => validateCatalogues({ 'zh-CN': { tip: '无', unused: {} } }, ['zh-CN']), /Empty/);
+  assert.throws(() => validateCatalogues({ 'zh-CN': { 'a.b': '值', a: { b: '值' } } }, ['zh-CN']), /Duplicate/);
+});
