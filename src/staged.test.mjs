@@ -98,3 +98,15 @@ test('a deleted topic cannot remain solely in the site navigation', async t => {
   fs.writeFileSync(path.join(root, 'mkdocs.yml'), 'nav: []\n');
   git('add', 'mkdocs.yml'); await checkStaged(root);
 });
+
+test('staged executable binary and renamed armored private material are distinguished', async t => {
+  const { root, git } = repository(t);
+  fs.writeFileSync(path.join(root, 'module.wasm'), Buffer.from([0, 97, 115, 109]), { mode: 0o755 });
+  git('add', 'module.wasm');
+  await checkStaged(root);
+  const header = '-----BEGIN PGP ' + 'PRIVATE KEY BLOCK-----';
+  const content = 'x'.repeat(65525) + '\n' + header + '\n';
+  fs.writeFileSync(path.join(root, 'fixture-data'), content);
+  git('add', 'fixture-data');
+  await assert.rejects(checkStaged(root), /fixture-data: private key material/);
+});

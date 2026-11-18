@@ -5,3 +5,5 @@
 self-hosted-runner:
   labels:
     - ubuntu-26.04
+    - stuhelper-arc-sh-k8s
+    - stuhelper-arc-sh-release

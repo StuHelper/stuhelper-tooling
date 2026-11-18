@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { checkSource, privateMaterialErrors } from './repository.mjs';
+import { checkFile, privateMaterialErrors } from './repository.mjs';
 import { checkDocs } from './docs/check-docs.mjs';
 import { lintMarkdown } from './docs/lint-markdown.mjs';
 
@@ -49,9 +49,11 @@ export async function checkStaged(root, { eslint = false } = {}) {
         continue;
       }
       if (/\.(?:[cm]?js|ts|tsx|vue)$/.test(file)) scripts.push(file);
-      const source = fs.readFileSync(location, 'utf8');
-      errors.push(...checkSource(file, source, modes.get(file) === '100755'));
+      const violations = checkFile(file, location, modes.get(file) === '100755');
+      errors.push(...violations);
+      if (violations.length) continue;
       if (file.endsWith('.go')) {
+        const source = fs.readFileSync(location, 'utf8');
         const formatted = spawnSync('gofmt', [], { input: source, encoding: 'utf8', env });
         if (formatted.error) throw formatted.error;
         if (formatted.status !== 0) errors.push(`${file}: ${formatted.stderr.trim()}`);
@@ -62,7 +64,7 @@ export async function checkStaged(root, { eslint = false } = {}) {
         if (parsed.status !== 0) errors.push(`${file}: JavaScript syntax check failed\n${parsed.stderr}`);
       }
     }
-    if (files.some(file => /\.(?:md|markdown)$|^mkdocs\.yml$|^\.markdownlint-cli2\.yaml$/.test(file)) && (files.includes('.markdownlint-cli2.yaml') || fs.existsSync(path.join(target, '.markdownlint-cli2.yaml')))) {
+    if (!errors.length && files.some(file => /\.(?:md|markdown)$|^mkdocs\.yml$|^\.markdownlint-cli2\.yaml$/.test(file)) && (files.includes('.markdownlint-cli2.yaml') || fs.existsSync(path.join(target, '.markdownlint-cli2.yaml')))) {
       let base = 'HEAD';
       try { git(target, ['rev-parse', '--verify', 'HEAD'], env); } catch { base = '0'.repeat(40); }
       errors.push(...await lintMarkdown(target), ...checkDocs(target, { base, env }).errors);
