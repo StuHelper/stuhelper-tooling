@@ -60,8 +60,6 @@ jobs:
           gh auth setup-git --hostname github.com
           go mod download
       - name: Build fixed source
-        env:
-          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
@@ -92,31 +90,58 @@ jobs:
           esac
           archive="stuhelper-$APPLICATION-$VERSION-linux-amd64.tar.gz"
           if [[ "$APPLICATION" =~ ^(web|admin)$ ]]; then archive="stuhelper-$APPLICATION-$VERSION.tar.gz"; fi
-          tar -czf "$output/$archive" -C "$payload" .
+          tar --sort=name --mtime="@$(git show -s --format=%ct HEAD)" --owner=0 --group=0 --numeric-owner -czf "$output/$archive" -C "$payload" .
           cp LICENSE "$output/LICENSE"
           {
             echo "Source: $GITHUB_REPOSITORY@$VERSION ($(git rev-parse HEAD))"
-            echo "Build: CI $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            echo "Workflow: ${GITHUB_WORKFLOW_REF%@*}"
             echo "Node: $(node --version); pnpm: $(pnpm --version)"
             if [[ "$APPLICATION" =~ ^(backend|campus-adapters)$ ]]; then go version; fi
             echo "Target: linux/amd64; GOWORK=off; CGO_ENABLED=0 (Go builds)"
           } > "$output/BUILD-INFO.txt"
           (cd "$output" && sha256sum "$archive" LICENSE BUILD-INFO.txt > SHA256SUMS)
           for file in "$output"/*; do test "$(stat -c %s "$file")" -lt 2147483648; done
-          if gh release view "$VERSION" --json assets > "$RUNNER_TEMP/existing-release.json"; then
-            for file in "$output"/*; do
-              name=$(basename "$file")
-              if jq -e --arg name "$name" '.assets[] | select(.name == $name)' "$RUNNER_TEMP/existing-release.json" > /dev/null; then
-                echo "Asset already exists: $name" >&2; exit 1
-              fi
-            done
+      - name: Publish verified assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          output="$RUNNER_TEMP/release-output"
+          state="$RUNNER_TEMP/existing-release.json"
+          lookup_error="$RUNNER_TEMP/release-lookup.log"
+          marker="StuHelper release assets: $GITHUB_REPOSITORY/$APPLICATION@$VERSION"
+          if gh release view "$VERSION" --json isDraft,body,assets > "$state" 2> "$lookup_error"; then
+            draft=$(jq -er '.isDraft | tostring' "$state")
+            if [[ "$draft" == true ]]; then
+              jq -e --arg marker "$marker" '.body == $marker' "$state" >/dev/null || { echo "Unexpected draft owner" >&2; exit 1; }
+            fi
+          elif [[ "$(cat "$lookup_error")" == 'release not found' ]]; then
+            gh release create "$VERSION" --verify-tag --draft --title "$VERSION" --notes "$marker"
+            draft=true
+            echo '{"assets":[]}' > "$state"
           else
-            gh release create "$VERSION" --verify-tag --title "$VERSION" --notes-file "$output/BUILD-INFO.txt"
+            cat "$lookup_error" >&2
+            exit 1
           fi
-          gh release upload "$VERSION" "$output"/*
-          verify=$(mktemp -d)
-          gh release download "$VERSION" --dir "$verify"
+          verify=$(mktemp -d "$RUNNER_TEMP/release-verify.XXXXXX")
+          trap 'rm -rf -- "$verify"' EXIT
+          for file in "$output"/*; do
+            name=$(basename "$file")
+            status=$(jq -r --arg name "$name" '[.assets[] | select(.name == $name) | .state // "uploaded"][0] // "missing"' "$state")
+            if [[ "$draft" == true && "$status" == "starter" ]]; then
+              gh release delete-asset "$VERSION" "$name" --yes
+              status=missing
+            fi
+            if [[ "$status" == missing ]]; then
+              [[ "$draft" == true ]] || { echo "Missing published asset: $name" >&2; exit 1; }
+              gh release upload "$VERSION" "$file"
+            fi
+            gh release download "$VERSION" --pattern "$name" --dir "$verify"
+            cmp "$file" "$verify/$name"
+          done
           (cd "$verify" && sha256sum --check SHA256SUMS)
+          if [[ "$draft" == true ]]; then gh release edit "$VERSION" --draft=false; fi
           gh release view "$VERSION" --json url,assets >> "$GITHUB_STEP_SUMMARY"
       - name: Remove temporary credential helper
         if: always()
