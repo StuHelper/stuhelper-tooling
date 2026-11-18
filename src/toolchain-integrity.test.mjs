@@ -47,7 +47,7 @@ test('the setup action selects digest verification even when the pinned version 
   const steps = YAML.parse(fs.readFileSync(path.join(action, 'action.yml'), 'utf8')).runs.steps;
   const output = path.join(dir, 'outputs');
   const env = { ...process.env, PATH: path.join(dir, 'bin') + ':' + process.env.PATH, GITHUB_OUTPUT: output,
-    PRIVATE: 'false', RUNNER_ENVIRONMENT: 'github-hosted', GITHUB_EVENT_NAME: 'pull_request' };
+    STUHELPER_SETUP_RECORDS: path.join(dir, 'records'), GITHUB_ACTION_PATH: action, PRIVATE: 'false', RUNNER_ENVIRONMENT: 'github-hosted', GITHUB_EVENT_NAME: 'pull_request' };
   const result = spawnSync('bash', ['-c', steps.find(step => step.id === 'policy').run], { cwd: dir, env, encoding: 'utf8' });
   assert.equal(result.status, 0, result.stderr);
   assert.match(fs.readFileSync(output, 'utf8'), /^pinned=true$/m);

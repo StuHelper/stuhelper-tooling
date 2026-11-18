@@ -21,6 +21,9 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: Initialize toolchain metrics
+      shell: bash
+      run: bash "$GITHUB_ACTION_PATH/summary.sh" init
     - name: Select cache access and pnpm
       id: policy
       shell: bash
@@ -28,6 +31,7 @@ runs:
         PRIVATE: ${{ github.event.repository.private }}
       run: |
         set -euo pipefail
+        bash "$GITHUB_ACTION_PATH/summary.sh" start pnpm
         access=off
         if [[ "$PRIVATE" == false && "$RUNNER_ENVIRONMENT" == github-hosted ]] ||
            [[ "$PRIVATE" == true && "$RUNNER_ENVIRONMENT" == self-hosted && "${STUHELPER_CACHE_READY:-}" == true ]]; then
@@ -56,18 +60,34 @@ runs:
       run: bash "$GITHUB_ACTION_PATH/pinned-pnpm.sh"
     - uses: pnpm/action-setup@v6.1.1
       if: steps.policy.outputs.pinned != 'true' && steps.policy.outputs.pnpm-installed != 'true'
+    - name: Record pnpm and start Node timing
+      shell: bash
+      run: |
+        bash "$GITHUB_ACTION_PATH/summary.sh" record pnpm "${{ steps.policy.outputs.pinned == 'true' && 'verified npm archive' || 'pnpm/action-setup' }}"
+        bash "$GITHUB_ACTION_PATH/summary.sh" start node
     - uses: actions/setup-node@v7.1.0
       with:
         node-version-file: ${{ inputs.node-version-file }}
         package-manager-cache: false
         cache: ${{ steps.policy.outputs.access == 'write' && 'pnpm' || '' }}
         cache-dependency-path: ${{ inputs.pnpm-cache-dependency-path }}
+    - name: Record Node timing
+      shell: bash
+      run: bash "$GITHUB_ACTION_PATH/summary.sh" record node actions/setup-node
+    - name: Start Go timing
+      if: inputs.go-version-file != ''
+      shell: bash
+      run: bash "$GITHUB_ACTION_PATH/summary.sh" start go
     - uses: actions/setup-go@v7.1.0
       if: inputs.go-version-file != ''
       with:
         go-version-file: ${{ inputs.go-version-file }}
         cache: ${{ steps.policy.outputs.access == 'write' }}
         cache-dependency-path: ${{ inputs.go-cache-dependency-path }}
+    - name: Record Go timing
+      if: inputs.go-version-file != ''
+      shell: bash
+      run: bash "$GITHUB_ACTION_PATH/summary.sh" record go actions/setup-go
     - name: Resolve read-only cache paths
       if: steps.policy.outputs.access == 'read'
       id: paths
@@ -103,3 +123,7 @@ runs:
       if: inputs.postgres == 'true'
       shell: bash
       run: bash "$GITHUB_ACTION_PATH/postgres.sh"
+    - name: Summarize toolchain environment
+      if: always()
+      shell: bash
+      run: bash "$GITHUB_ACTION_PATH/summary.sh" flush

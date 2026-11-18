@@ -39,7 +39,7 @@ if (parsed) await reported(parsed.positionals[0] || 'check', async () => {
   }
   else if (command === 'staged') await checkStaged(process.cwd(), { eslint: values.eslint });
   else if (command === 'workflows') {
-    const result = spawnSync('actionlint', ['-format', '{{json .}}', '-shellcheck=', '-pyflakes='], { encoding: 'utf8' });
+    const result = spawnSync('actionlint', [...(process.stdout.isTTY || process.env.GITHUB_ACTIONS === 'true' ? ['-color'] : []), '-format', '{{json .}}', '-shellcheck=', '-pyflakes='], { encoding: 'utf8' });
     if (result.error) throw result.error;
     if (result.status !== 0) {
       if (!result.stdout.trim()) throw new Error(result.stderr.trim() || 'actionlint failed');

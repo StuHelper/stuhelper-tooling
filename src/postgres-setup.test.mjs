@@ -5,7 +5,7 @@ import { spawnSync } from 'node:child_process';
 
 const script = fs.readFileSync('actions/setup/postgres.sh', 'utf8');
 test('only two fully installed packages select the preinstalled path', () => {
-  const probe = script.slice(0, script.indexOf('\nelse\n')) + '\nelse echo install; fi';
+  const probe = script.slice(script.indexOf('if statuses='), script.indexOf('\nelse\n')) + '\nelse echo install; fi';
   for (const [client, code, installed] of [['install ok installed', 0, true], ['deinstall ok config-files', 0, false], ['', 1, false]]) {
     const mock = `dpkg-query() {
       if [[ "$*" == *Status* ]]; then

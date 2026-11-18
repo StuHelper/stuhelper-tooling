@@ -93,3 +93,27 @@ test('complete static entry reaches packaging with its original content', t => {
   const archive = path.join(root, 'release-output/stuhelper-web-v1.2.3.tar.gz');
   assert.equal(execFileSync('tar', ['-xOzf', archive, './index.html'], { encoding: 'utf8' }), '<main>fixture</main>');
 });
+
+test('release verifies annotated tag ancestry before packaging', t => {
+  const verifyTag = action.runs.steps.find(step => step.name === 'Verify source tag');
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'stuhelper-release-full-'));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const git = (...args) => execFileSync('git', args, { cwd: directory, encoding: 'utf8' }).trim();
+  git('init', '-q', '-b', 'main');
+  git('config', 'user.name', 'Fixture');
+  git('config', 'user.email', 'fixture@example.invalid');
+  git('config', 'commit.gpgSign', 'false');
+  git('config', 'tag.gpgSign', 'false');
+  fs.mkdirSync(path.join(directory, 'cmd/backend'), { recursive: true });
+  fs.writeFileSync(path.join(directory, 'cmd/backend/main.go'), 'package main\nfunc main() {}\n');
+  fs.writeFileSync(path.join(directory, 'LICENSE'), 'AGPL-3.0-only\n');
+  git('add', '.');
+  git('commit', '-qm', 'release source');
+  git('update-ref', 'refs/remotes/origin/main', 'HEAD');
+  git('tag', '-a', 'v1.2.0', '-m', 'annotated release');
+  git('update-ref', 'refs/tags/v1.2.1', 'HEAD');
+
+  assert.equal(spawnSync('bash', ['-c', verifyTag.run], { cwd: directory, env: { ...process.env, APPLICATION: 'backend', VERSION: 'v1.2.0' }, encoding: 'utf8' }).status, 0);
+  assert.notEqual(spawnSync('bash', ['-c', verifyTag.run], { cwd: directory, env: { ...process.env, APPLICATION: 'backend', VERSION: 'v1.2.1' }, encoding: 'utf8' }).status, 0);
+
+});
