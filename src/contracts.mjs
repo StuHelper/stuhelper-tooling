@@ -128,14 +128,20 @@ function verifySourceManifest(root, sourceFile) {
       const target = typeof record.path === 'string' && safeRelativePath(root, record.path) ? record.path : companion;
       if (typeof record.path === 'string' && (!safeRelativePath(root, record.path) || !fs.existsSync(path.join(root, record.path)))) {
         errors.push(`${sourceFile}: missing contract file "${record.path}"`);
-      } else if (target && fs.existsSync(path.join(root, target))) {
+      } else if (!target || !safeRelativePath(root, target) || !fs.statSync(path.join(root, target), { throwIfNoEntry: false })?.isFile()) {
+        errors.push(`${sourceFile}: missing contract snapshot for sha256`);
+      } else {
         const actual = sha256Hex(fs.readFileSync(path.join(root, target)));
         if (actual !== record.sha256) {
           errors.push(`${sourceFile}: ${target} SHA-256 mismatch (expected ${record.sha256}, got ${actual})`);
         }
       }
     }
-  } else if (typeof record.contract_sha256 === 'string' && /^[0-9a-f]{64}$/.test(record.contract_sha256) && companion) {
+  } else if (typeof record.contract_sha256 === 'string' && /^[0-9a-f]{64}$/.test(record.contract_sha256)) {
+    if (!companion || !safeRelativePath(root, companion) || !fs.statSync(path.join(root, companion))?.isFile()) {
+      errors.push(`${sourceFile}: missing contract snapshot for contract_sha256`);
+      return errors;
+    }
     const actual = sha256Hex(fs.readFileSync(path.join(root, companion)));
     if (actual !== record.contract_sha256) {
       errors.push(`${sourceFile}: ${companion} SHA-256 mismatch (expected ${record.contract_sha256}, got ${actual})`);

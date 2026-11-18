@@ -41,7 +41,8 @@ export function createFrontendCheckPreset({ vueFiles = ['src/**/*.vue'], ignoreR
     {
       files: vueFiles,
       rules: {
-        'no-restricted-syntax': ['error', cjkLiteralSelector, ...accessibleTemplateSelectors],
+        'no-restricted-syntax': ['error', cjkLiteralSelector],
+        'vue/no-restricted-syntax': ['error', ...accessibleTemplateSelectors],
       },
     },
   ];

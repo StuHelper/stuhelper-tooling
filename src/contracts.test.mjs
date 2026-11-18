@@ -108,6 +108,31 @@ test('frontend lefthook and ESLint accessibility/i18n presets provide valid conf
   assert.ok(rawRule[1].attributes['/.*/'].includes('alt'));
   assert.equal(preset[0].rules['jsonc/no-dupe-keys'], 'error');
   assert.deepEqual(preset[1].files, ['apps/web-antd/src/**/*.vue']);
-  assert.equal(preset[1].rules['no-restricted-syntax'].length, 2 + accessibleTemplateSelectors.length);
+  assert.deepEqual(preset[1].rules['vue/no-restricted-syntax'].slice(1), accessibleTemplateSelectors);
   assert.equal(preset[1].rules['no-restricted-syntax'][1], cjkLiteralSelector);
+});
+
+test('scalar contract digests require a companion snapshot', t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'stuhelper-companion-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(root, 'contracts'));
+  for (const key of ['sha256', 'contract_sha256']) {
+    fs.writeFileSync(path.join(root, 'contracts/api.source.json'), JSON.stringify({revision: 'a'.repeat(40), [key]: sha256('spec')}));
+    assert.match(checkContracts(root).join('\n'), /missing.*contract/i);
+  }
+});
+
+test('Vue lint visits template elements and script literals', async () => {
+  const { ESLint } = await import('eslint');
+  const { default: vue } = await import('eslint-plugin-vue');
+  const { default: parser } = await import('vue-eslint-parser');
+  const [, rules] = createFrontendCheckPreset();
+  const lint = new ESLint({ overrideConfigFile: true, overrideConfig: [
+    { ...rules, plugins: { vue }, languageOptions: { parser } }
+  ] });
+  const run = async source => (await lint.lintText(source, { filePath: 'src/Example.vue' }))[0].messages.map(m => m.ruleId);
+  const bad = await run('<template><div><img src="photo.png"><button/><span @click="go"/></div></template><script>const title="课程";</script>');
+  assert.equal(bad.filter(id => id === 'vue/no-restricted-syntax').length, 3, JSON.stringify(bad));
+  assert.ok(bad.includes('no-restricted-syntax'));
+  assert.deepEqual(await run('<template><div><img alt=""><button aria-label="Save"/><span/></div></template>'), []);
 });

@@ -1,0 +1,58 @@
+name: Publish application image
+on:
+  workflow_call:
+    inputs:
+      application:
+        description: Application repository suffix
+        required: true
+        type: string
+      version:
+        description: Existing annotated release tag on main
+        required: true
+        type: string
+    secrets:
+      registry-user:
+        required: true
+      registry-password:
+        required: true
+permissions:
+  contents: read
+jobs:
+  publish:
+    name: Application image
+    if: github.event.repository.private && github.event_name != 'pull_request' && github.event_name != 'pull_request_target'
+    runs-on:
+      group: stuhelper-arc
+    timeout-minutes: 45
+    environment: release
+    env:
+      APPLICATION: ${{ inputs.application }}
+      VERSION: ${{ inputs.version }}
+      IMAGE_PATH: stuhelper-next/${{ inputs.application }}
+    steps:
+      - name: Resolve this workflow's tooling revision
+        id: tooling
+        shell: bash
+        env:
+          WORKFLOW_JOB: ${{ toJSON(job) }}
+        run: |
+          set -euo pipefail
+          test ! -e .stuhelper-release-tools
+          test ! -L .stuhelper-release-tools
+          repository=$(jq -er '.workflow_repository | select(test("^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"))' <<< "$WORKFLOW_JOB")
+          sha=$(jq -er '.workflow_sha | select(test("^[0-9a-f]{40}$"))' <<< "$WORKFLOW_JOB")
+          printf 'repository=%s\nsha=%s\n' "$repository" "$sha" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v7.0.1
+        with:
+          repository: ${{ steps.tooling.outputs.repository }}
+          ref: ${{ steps.tooling.outputs.sha }}
+          path: .stuhelper-release-tools
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: /actions/publish-image/
+      - uses: ./.stuhelper-release-tools/actions/publish-image
+        with:
+          source-directory: source
+          version: ${{ inputs.version }}
+          registry-user: ${{ secrets.registry-user }}
+          registry-password: ${{ secrets.registry-password }}
