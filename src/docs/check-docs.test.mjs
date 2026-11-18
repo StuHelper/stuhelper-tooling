@@ -53,7 +53,20 @@ test('templates and code examples allow placeholders, ordinary prose does not', 
     'docs/spec/a.md': doc('# 示例\n\n`TODO: literal`\n\n```text\nYYYY-MM-DD\n```'),
     'docs/spec/b.md': doc('# 未完成\n\nTODO: 填写'),
   });
-  assert.deepEqual(checkDocs(root).errors, ['docs/spec/b.md: unfilled prose placeholder']);
+  assert.deepEqual(checkDocs(root).errors, ['docs/spec/b.md:9: unfilled prose placeholder']);
+});
+
+test('broken links, placeholders and alias violations report exact 1-based line numbers across softbreaks', (t) => {
+  const root = fixture(t, {
+    'docs/spec/a.md': doc('# 规格\n\n第一行正文\n第二行含 [断链](absent.md)\n第三行含旧词有效学生资格\n第四行含 TODO: 补全'),
+  });
+  fs.writeFileSync(path.join(root, 'glossary.md'), '| 术语 | 定义 | 字段 | 范围 | 替代表述 |\n| 有效校园资格 | definition | field | scope | 有效学生资格 |\n');
+  const errors = checkDocs(root, { glossary: 'glossary.md' }).errors;
+  assert.deepEqual(errors, [
+    'docs/spec/a.md:12: unfilled prose placeholder',
+    'docs/spec/a.md:11: use standard term "有效校园资格" instead of "有效学生资格"',
+    'docs/spec/a.md:10: missing or external local target: absent.md',
+  ]);
 });
 
 test('ignored dependencies are not parsed and links cannot escape repository', (t) => {
@@ -282,4 +295,14 @@ test('large committed document bodies retain their actual Git content date', t =
   git('init', '-q'); git('add', '.'); git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'body');
   const options = { base: '0'.repeat(40), now: Date.parse('2026-10-26T00:00:00Z') };
   assert.deepEqual(checkDocs(root, options).errors, []);
+});
+
+test('each table cell diagnostic uses its own source row', t => {
+  const root = fixture(t, {
+    'docs/spec/a.md': doc('# 规格\n\n| 名称 | 详情 |\n| --- | --- |\n| 第一项 | [失效](absent.md) |\n| 第二项 | TODO: 填写 |'),
+  });
+  assert.deepEqual(checkDocs(root).errors.sort(), [
+    'docs/spec/a.md:11: missing or external local target: absent.md',
+    'docs/spec/a.md:12: unfilled prose placeholder',
+  ]);
 });

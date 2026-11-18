@@ -31,8 +31,11 @@ export function checkSource(file, source, executable = false) {
   const entry = /(?:^|\/)bin\/[^/.]+$/.test(file);
   const script = entry || /\.(?:mjs|js|py|sh)$/.test(file);
   const shebang = source.startsWith('#!');
-  if (script && shebang && !executable) errors.push(`${file}: a direct script entry needs the executable bit in Git`);
-  if ((entry || (script && executable)) && !shebang) errors.push(`${file}: executable script needs a shebang`);
+  if (script && shebang && !executable) errors.push(`${file}: a direct script entry needs the executable bit in Git (run: git update-index --chmod=+x ${file})`);
+  if ((entry || (script && executable)) && !shebang) {
+    const hint = entry ? 'add a shebang to this entry point' : `add a shebang or run: git update-index --chmod=-x ${file}`;
+    errors.push(`${file}: executable script needs a shebang (${hint})`);
+  }
   if (executable && /\.(?:go|ts|json|md|markdown|ya?ml)$/.test(file)) errors.push(`${file}: ordinary source must not be executable`);
   return errors;
 }
