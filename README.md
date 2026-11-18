@@ -32,6 +32,8 @@ pnpm exec lefthook install
 
 前端通过 `actions/frontend-cache` 复用 Vite 与 TypeScript 的中间文件。安装锁定依赖后调用 `actions/chromium`，按锁文件复用 Chromium，并在每台托管 runner 上准备系统库。Go 正式检查使用 `GOWORK=off`。
 
+启用 PostgreSQL 的检查会分别核验服务端、客户端元包以及 psql。缺少完整安装时，以非交互模式从签名软件源补装。
+
 ### 发行文件检查
 
 调用方通过可复用工作流的版本选择发行实现。工作流按自身源码提交检出同版本的构建 action。打包前校验 backend 的可执行入口、Web 与 Admin 的非空页面入口，以及校园同步工具输出的唯一版本记录。
