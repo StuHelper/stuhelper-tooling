@@ -36,6 +36,7 @@ test('entry modes and the public release runner label are checked', () => {
   assert.ok(checkSource('bin/run', 'echo fixture', false).length);
   assert.ok(checkSource('readme.md', '# Guide', true).length);
   assert.deepEqual(checkSource('bin/run', '#!/bin/sh\n', true), []);
+  assert.deepEqual(checkSource('module.wasm', '\0asm', true), []);
   const config = parse(fs.readFileSync('.github/actionlint.yaml', 'utf8'));
   assert.ok(config['self-hosted-runner'].labels.includes('stuhelper-arc-sh-release'));
 });

@@ -1,12 +1,13 @@
+import { gitMaxBuffer } from './git-options.mjs';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { checkSource } from './repository.mjs';
+import { checkFile, privateMaterialErrors } from './repository.mjs';
 import { checkDocs } from './docs/check-docs.mjs';
 import { lintMarkdown } from './docs/lint-markdown.mjs';
 
-const git = (root, args, env = process.env) => execFileSync('git', ['-C', root, ...args], { env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+const git = (root, args, env = process.env) => execFileSync('git', ['-C', root, ...args], { env, maxBuffer: gitMaxBuffer, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
 
 export async function withIndex(root, action) {
   const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'stuhelper-index-'));
@@ -33,17 +34,26 @@ export async function withIndex(root, action) {
 }
 
 export async function checkStaged(root, { eslint = false } = {}) {
-  const files = git(root, ['diff', '--cached', '--name-only', '--diff-filter=ACMR', '-z']).split('\0').filter(Boolean);
+  const files = git(root, ['diff', '--cached', '--name-only', '--no-renames', '--diff-filter=ACDMT', '-z']).split('\0').filter(Boolean);
   if (!files.length) return;
   await withIndex(root, async (target, env) => {
     const errors = [];
+    const records = git(root, ['ls-files', '--stage', '-z']).split('\0').filter(Boolean);
+    const modes = new Map(records.map(record => [record.slice(record.indexOf('\t') + 1), record.slice(0, 6)]));
+    const scripts = [];
     for (const file of files) {
       const location = path.join(target, file);
-      const stat = fs.lstatSync(location);
-      if (!stat.isFile()) continue;
-      const source = fs.readFileSync(location, 'utf8');
-      errors.push(...checkSource(file, source, Boolean(stat.mode & 0o111)));
+      if (!modes.has(file)) continue; // A deleted path still triggers the document checks below.
+      if (!fs.lstatSync(location).isFile()) {
+        errors.push(...privateMaterialErrors(file));
+        continue;
+      }
+      if (/\.(?:[cm]?js|ts|tsx|vue)$/.test(file)) scripts.push(file);
+      const violations = checkFile(file, location, modes.get(file) === '100755');
+      errors.push(...violations);
+      if (violations.length) continue;
       if (file.endsWith('.go')) {
+        const source = fs.readFileSync(location, 'utf8');
         const formatted = spawnSync('gofmt', [], { input: source, encoding: 'utf8', env });
         if (formatted.error) throw formatted.error;
         if (formatted.status !== 0) errors.push(`${file}: ${formatted.stderr.trim()}`);
@@ -54,13 +64,12 @@ export async function checkStaged(root, { eslint = false } = {}) {
         if (parsed.status !== 0) errors.push(`${file}: JavaScript syntax check failed\n${parsed.stderr}`);
       }
     }
-    if (files.some(file => /\.md$|^mkdocs\.yml$|^\.markdownlint-cli2\.yaml$/.test(file)) && fs.existsSync(path.join(target, '.markdownlint-cli2.yaml'))) {
+    if (!errors.length && files.some(file => /\.(?:md|markdown)$|^mkdocs\.yml$|^\.markdownlint-cli2\.yaml$/.test(file)) && (files.includes('.markdownlint-cli2.yaml') || fs.existsSync(path.join(target, '.markdownlint-cli2.yaml')))) {
       let base = 'HEAD';
       try { git(target, ['rev-parse', '--verify', 'HEAD'], env); } catch { base = '0'.repeat(40); }
-      errors.push(...await lintMarkdown(target), ...checkDocs(target, { base }).errors);
+      errors.push(...await lintMarkdown(target), ...checkDocs(target, { base, env }).errors);
     }
-    if (errors.length) throw new Error(errors.join('\n'));
-    const scripts = files.filter(file => /\.(?:[cm]?js|ts|tsx|vue)$/.test(file));
+    if (errors.length) throw new AggregateError(errors, errors.join('\n'));
     if (eslint && scripts.length) {
       const checked = spawnSync('pnpm', ['exec', 'eslint', '--max-warnings=0', '--no-warn-ignored', ...scripts], { cwd: target, env, stdio: 'inherit' });
       if (checked.error) throw checked.error;
