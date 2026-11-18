@@ -7,9 +7,11 @@ import { test } from 'node:test';
 import YAML from 'yaml';
 
 const workflow = YAML.parse(fs.readFileSync(new URL('../.github/workflows/release.yml', import.meta.url), 'utf8'));
-const build = workflow.jobs.publish.steps.find(step => step.name === 'Build fixed source');
+const action = YAML.parse(fs.readFileSync(new URL('../actions/release-assets/action.yml', import.meta.url), 'utf8'));
+const build = action.runs.steps.find(step => step.name === 'Build fixed source');
 
 test('release passes tag and actual commit to the source builder and refuses failed builds', t => {
+  assert.match(workflow.jobs.publish.steps[0].uses, /\/actions\/release-assets@v/);
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'stuhelper-release-'));
   t.after(() => fs.rmSync(directory, { recursive: true }));
   fs.mkdirSync(path.join(directory, 'scripts'));
