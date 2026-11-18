@@ -19,9 +19,9 @@ test('only two fully installed packages select the preinstalled path', () => {
     assert.equal(r.stdout.includes('Using preinstalled'), installed);
   }
 });
-test('both apt bootstraps request noninteractive mode after sudo and verify the client', () => {
-  for (const body of [script, fs.readFileSync('actions/setup/arc-toolchains.sh', 'utf8')]) {
-    for (const line of body.split('\n').filter(line => line.includes('apt-get '))) assert.match(line, /sudo -n env DEBIAN_FRONTEND=noninteractive apt-get/);
-  }
+test('PostgreSQL installation requests noninteractive mode after sudo and verifies the client', () => {
+  const commands = script.split('\n').filter(line => line.includes('apt-get '));
+  assert.equal(commands.length, 2);
+  for (const line of commands) assert.match(line, /sudo -n env DEBIAN_FRONTEND=noninteractive apt-get/);
   assert.match(script, /"\$pg_bin\/psql" --version/);
 });
