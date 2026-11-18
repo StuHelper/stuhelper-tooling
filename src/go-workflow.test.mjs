@@ -8,43 +8,43 @@ import YAML from 'yaml';
 
 const workflow = YAML.parse(fs.readFileSync(new URL('../.github/workflows/go-checks.yml', import.meta.url), 'utf8'));
 const job = workflow.jobs.check;
-const validatePostgres = job.steps.find(step => step.name === 'Validate PostgreSQL option and process identity');
-const setupAction = job.steps.find(step => step.uses?.startsWith('StuHelper/stuhelper-tooling/actions/setup@'));
-const privateModules = job.steps.find(step => step.name === 'Download private Go dependencies');
-const setup = job.steps.find(step => step.name === 'Prepare the module');
-const check = job.steps.find(step => step.name === 'Check standalone Go module');
-const cleanup = job.steps.find(step => step.name === 'Remove temporary credential helper');
+const action = YAML.parse(fs.readFileSync(new URL('../actions/repository-check/action.yml', import.meta.url), 'utf8'));
+const setup = action.runs.steps.find(step => step.name === 'Prepare repository checks');
+const validatePostgres = action.runs.steps.find(step => step.name === 'Validate PostgreSQL option and process identity');
+const privateModules = action.runs.steps.find(step => step.name === 'Download private Go dependencies');
+const cleanup = action.runs.steps.find(step => step.name === 'Remove temporary credential helper');
+const check = action.runs.steps.find(step => step.name === 'Check repository');
 
 function run(step, command, cwd) {
   const key = Object.keys(step.env)[0];
   return spawnSync('bash', ['-euo', 'pipefail', '-c', step.run], { cwd, env: { ...process.env, GOWORK: job.env.GOWORK, [key]: command }, encoding: 'utf8' });
 }
 
-test('reusable Go checks preserve defaults, postgres forwarding, optional private modules and stable named check', () => {
-  assert.equal(workflow.on.workflow_call.inputs.postgres.default, 'false');
+test('reusable Go checks preserve defaults and the stable named check', () => {
   assert.equal(workflow.on.workflow_call.inputs['setup-command'].default, '');
   assert.equal(workflow.on.workflow_call.inputs['check-command'].default, 'make check');
-  assert.equal(workflow.on.workflow_call.secrets['modules-read-token'].required, false);
   assert.equal(job.name, '${{ inputs.name }}');
   assert.equal(job.env.GOWORK, 'off');
-  assert.equal(setupAction.with['go-version-file'], '.go-version');
-  assert.equal(setupAction.with.postgres, '${{ inputs.postgres }}');
-  assert.equal(privateModules.env.GH_TOKEN, '${{ secrets.modules-read-token }}');
-  assert.equal(privateModules.env.GIT_CONFIG_GLOBAL, '${{ runner.temp }}/go-modules.gitconfig');
   assert.equal(setup.if, "inputs.setup-command != ''");
-  assert.equal(setup.env.SETUP_COMMAND, '${{ inputs.setup-command }}');
-  assert.equal(check.env.CHECK_COMMAND, '${{ inputs.check-command }}');
-  assert.equal(cleanup.if, 'always()');
-  assert(job.steps.indexOf(setupAction) < job.steps.indexOf(privateModules));
-  assert(job.steps.indexOf(privateModules) < job.steps.indexOf(setup));
-  assert(job.steps.indexOf(setup) < job.steps.indexOf(check));
-  assert(job.steps.indexOf(check) < job.steps.indexOf(cleanup));
+  assert.equal(setup.env.COMMAND, '${{ inputs.setup-command }}');
+  assert.equal(check.env.COMMAND, '${{ inputs.check-command }}');
+  const invoke = job.steps.find(step => step.uses === './.tools/stuhelper-workflow/actions/repository-check');
+  assert.equal(invoke.with['go-version-file'], '.go-version');
+  assert.equal(invoke.with.postgres, '${{ inputs.postgres }}');
+  assert.equal(workflow.on.workflow_call.inputs.postgres.default, 'false');
+  assert.equal(invoke.with['modules-read-token'], undefined);
+  const privateWorkflow = YAML.parse(fs.readFileSync('.github/workflows/go-checks-private.yml', 'utf8'));
+  assert.equal(privateWorkflow.jobs.check.if, 'github.event.repository.private');
+  assert.equal(privateWorkflow.jobs.check.steps.at(-1).with['modules-read-token'], '${{ secrets.modules-read-token }}');
+  assert.equal(privateModules.env.GH_TOKEN, '${{ inputs.modules-read-token }}');
+  assert.match(cleanup.if, /always\(\)/);
+  assert(action.runs.steps.indexOf(setup) < action.runs.steps.indexOf(check));
 });
 
 test('setup and isolated check commands execute in order and propagate failures', t => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'stuhelper-go-workflow-'));
   t.after(() => fs.rmSync(directory, { recursive: true }));
-  assert.equal(run(setup, 'printf prepared > prerequisite', directory).status, 0);
+  assert.equal(run(setup, "printf prepared > prerequisite", directory).status, 0);
   assert.equal(run(check, 'test -f prerequisite && test "$GOWORK" = off', directory).status, 0);
   assert.notEqual(run(setup, 'false; touch should-not-exist', directory).status, 0);
   assert(!fs.existsSync(path.join(directory, 'should-not-exist')));
