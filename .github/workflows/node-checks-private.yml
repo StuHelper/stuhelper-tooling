@@ -1,0 +1,33 @@
+name: Reusable Node checks
+on:
+  workflow_call:
+    inputs:
+      name:
+        description: Stable required check name
+        type: string
+        default: Node checks
+      setup-command:
+        description: Optional local setup after dependency installation
+        type: string
+        default: ''
+      check-command:
+        description: The same repository check command used locally
+        type: string
+        default: make check
+permissions:
+  contents: read
+jobs:
+  check:
+    name: ${{ inputs.name }}
+    if: github.event.repository.private
+    runs-on:
+      group: stuhelper-arc
+    timeout-minutes: 25
+    env:
+      LEFTHOOK: '0'
+      DOCS_BASE_REF: ${{ github.event.pull_request.base.sha || github.event.before || github.sha }}
+    steps:
+      - uses: StuHelper/stuhelper-tooling/actions/repository-check@v0.1.11
+        with:
+          setup-command: ${{ inputs.setup-command }}
+          check-command: ${{ inputs.check-command }}
