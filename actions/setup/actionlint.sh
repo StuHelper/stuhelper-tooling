@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
+action_path=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=actions/setup/summary.sh
+. "$action_path/summary.sh"
+start=$(now_ms)
 version=1.7.12
 if command -v actionlint >/dev/null && [[ "$(actionlint --version | head -n 1)" == "$version" ]]; then
   printf 'Using preinstalled actionlint %s\n' "$version"
+  record_toolchain_metric "actionlint" "$version" "preinstalled" "$(format_duration_ms "$start" "$(now_ms)")"
   exit 0
 fi
 case "$(uname -m)" in
@@ -14,10 +19,10 @@ esac
 directory=$(mktemp -d "${RUNNER_TEMP:?}/actionlint.XXXXXX")
 trap 'rm -rf -- "$directory"' ERR
 archive="actionlint_${version}_linux_${architecture}.tar.gz"
-action_path=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 bash "$action_path/download.sh" "https://github.com/rhysd/actionlint/releases/download/v$version/$archive" "$directory/$archive"
 printf '%s  %s\n' "$checksum" "$directory/$archive" | sha256sum --check
 tar -xzf "$directory/$archive" -C "$directory" actionlint
 test "$("$directory/actionlint" --version | head -n 1)" = "$version"
 rm -- "$directory/$archive"
 printf '%s\n' "$directory" >> "$GITHUB_PATH"
+record_toolchain_metric "actionlint" "$version" "downloaded" "$(format_duration_ms "$start" "$(now_ms)")"
