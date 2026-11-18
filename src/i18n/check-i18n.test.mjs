@@ -82,7 +82,7 @@ const dynamic = (kind: string) => \`\${t(\`dynamic.\${kind}\`)} · \${t(\`script
 
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'stuhelper-i18n-scan-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
-  const policy = { default: 'zh-CN', languages: { 'zh-CN': { name: '简体中文', direction: 'ltr' }, 'en-US': { name: 'English', direction: 'ltr' } } };
+  const policy = { default: 'zh-CN', default_time_zone: 'Asia/Shanghai', languages: { 'zh-CN': { name: '简体中文', direction: 'ltr' }, 'en-US': { name: 'English', direction: 'ltr' } } };
   fs.writeFileSync(path.join(root, 'locale-policy.yaml'), stringifyYaml(policy));
   fs.writeFileSync(path.join(root, 'locale-policy.json'), `${JSON.stringify(policy, null, 2)}\n`);
   fs.mkdirSync(path.join(root, 'src/locales'), { recursive: true });
@@ -92,5 +92,21 @@ const dynamic = (kind: string) => \`\${t(\`dynamic.\${kind}\`)} · \${t(\`script
   check(root);
 
   fs.writeFileSync(path.join(root, 'src/App.vue'), `<template><i18n-t keypath="rich.missing" /></template>\n`);
-  assert.throws(() => check(root), /Unknown message key: src\/App\.vue -> rich\.missing/);
+  assert.throws(() => check(root), /src\/App\.vue: Unknown message key: rich\.missing/);
+});
+
+test('plural forms contain text and a quoted pipe is literal', () => {
+  const validate = (zh, en) => validateCatalogues({ 'zh-CN': { tip: zh }, 'en-US': { tip: en } }, ['zh-CN', 'en-US']);
+  assert.throws(() => validate('无', 'None |   '), /Empty plural/);
+  assert.equal(validate("课程 {'|'} 资料", "Course {'|'} resources"), 1);
+  assert.throws(() => validateCatalogues({ 'zh-CN': { tip: '无', unused: {} } }, ['zh-CN']), /Empty/);
+  assert.throws(() => validateCatalogues({ 'zh-CN': { 'a.b': '值', a: { b: '值' } } }, ['zh-CN']), /Duplicate/);
+});
+
+test('regex literals, quoted attribute delimiters and nested directive arguments preserve the static key', () => {
+  const script = String.raw`const slash = /[//]/; const message = t('after.regex'); // t('ignored')`;
+  assert.deepEqual(extractMessageKeys(script), ['after.regex']);
+  const template = `<template><i18n-t :label="count > 0" keypath="actual.rich" />
+    <span v-t="{ args: { path: 'unrelated.path' }, path: 'actual.directive' }" /></template>`;
+  assert.deepEqual(extractMessageKeys(template, {isVue: true}), ['actual.rich', 'actual.directive']);
 });

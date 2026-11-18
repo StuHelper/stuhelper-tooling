@@ -7,8 +7,12 @@ export function diagnostic(message, level = 'error') {
   console.error(message);
   if (process.env.GITHUB_ACTIONS !== 'true') return;
   const match = String(message).match(/^([^:\n]+?)(?::(\d+))?:\s*(.*)$/s);
-  const location = match ? ` file=${property(match[1])}${match[2] ? `,line=${match[2]}` : ''}` : '';
-  console.log(`::${level}${location}::${escape(match?.[3] ?? message)}`);
+  const candidate = match?.[1];
+  const pathLike = candidate && (fs.existsSync(candidate) || /^(?:[^\s:]+\/[^:]+|[^\s:]+\.[a-z0-9]+)$/i.test(candidate));
+  const chineseLine = pathLike && match[3].match(/^第 (\d+) 行/);
+  const line = match?.[2] || chineseLine?.[1];
+  const location = pathLike ? ` file=${property(match[1])}${line ? `,line=${line}` : ''}` : '';
+  console.log(`::${level}${location}::${escape(pathLike ? match[3] : message)}`);
 }
 
 export function summary(name, result, details = '') {
@@ -28,7 +32,7 @@ export async function reported(name, action) {
     summary(name, 'Passed', `${((performance.now() - start) / 1000).toFixed(2)} s`);
     return result;
   } catch (error) {
-    for (const message of error.message.split('\n')) diagnostic(message);
+    for (const message of error instanceof AggregateError ? error.errors : [error.message]) diagnostic(message);
     summary(name, 'Failed', `${((performance.now() - start) / 1000).toFixed(2)} s`);
     process.exitCode = 1;
   } finally {
