@@ -11,11 +11,9 @@ concurrency:
   cancel-in-progress: true
 jobs:
   guard:
-    uses: ./.github/workflows/node-checks.yml
-    with:
-      name: Public runner isolation
-      runs-on: '{"group":"stuhelper-arc","labels":"stuhelper-arc-sh-k8s"}'
-      check-command: |
-        test "$RUNNER_ENVIRONMENT" = github-hosted
-        test ! -d /opt/stuhelper-cache
-        test ! -d /var/lib/stuhelper-ci1
+    runs-on: ubuntu-26.04
+    steps:
+      - name: Verify hosted runner
+        run: test "$RUNNER_ENVIRONMENT" = github-hosted
+  private-guard:
+    uses: ./.github/workflows/node-checks-private.yml
