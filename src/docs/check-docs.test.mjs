@@ -238,3 +238,13 @@ test('unchanged newline-terminated documents stay outside the changed-date histo
   fs.writeFileSync(path.join(root, 'docs/spec/a.md'), doc('# A', 'spec', '2026-10-22'));
   assert.match(checkDocs(root, options).errors.join('\n'), /不早于本次内容修改日期 2026-10-24/);
 });
+
+test('large committed document bodies retain their actual Git content date', t => {
+  const initial = 'x'.repeat(1100000);
+  const root = fixture(t, { 'docs/spec/a.md': doc('# A\n\n```text\n' + initial + '\n```', 'spec', '2026-10-23') });
+  const git = (...args) => execFileSync('git', ['-C', root, ...args], { stdio: 'pipe', encoding: 'utf8',
+    env: { ...process.env, GIT_AUTHOR_DATE: '2026-10-23T00:00:00Z', GIT_COMMITTER_DATE: '2026-10-23T00:00:00Z' } }).trim();
+  git('init', '-q'); git('add', '.'); git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'body');
+  const options = { base: '0'.repeat(40), now: Date.parse('2026-10-26T00:00:00Z') };
+  assert.deepEqual(checkDocs(root, options).errors, []);
+});

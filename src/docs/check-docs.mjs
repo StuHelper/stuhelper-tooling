@@ -1,3 +1,4 @@
+import { gitMaxBuffer } from '../git-options.mjs';
 import fs from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
@@ -96,7 +97,7 @@ function parsedFile(file, siteDocument) {
   return { source, frontmatter, anchors, githubAnchors, links, prose, paragraphs, headings, scenarios, tableRows };
 }
 
-const gitText = (root, ...args) => execFileSync('git', ['-C', root, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+const gitText = (root, ...args) => execFileSync('git', ['-C', root, ...args], { maxBuffer: gitMaxBuffer, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
 const shanghaiDate = date => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit', numberingSystem: 'latn' }).format(new Date(date));
 const withoutUpdated = source => source.replace(/^updated:.*$/m, '').trim();
 function contentDate(root, relative) {

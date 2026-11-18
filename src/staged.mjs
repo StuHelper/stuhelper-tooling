@@ -1,3 +1,4 @@
+import { gitMaxBuffer } from './git-options.mjs';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -6,7 +7,7 @@ import { checkSource } from './repository.mjs';
 import { checkDocs } from './docs/check-docs.mjs';
 import { lintMarkdown } from './docs/lint-markdown.mjs';
 
-const git = (root, args, env = process.env) => execFileSync('git', ['-C', root, ...args], { env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+const git = (root, args, env = process.env) => execFileSync('git', ['-C', root, ...args], { env, maxBuffer: gitMaxBuffer, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
 
 export async function withIndex(root, action) {
   const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'stuhelper-index-'));
