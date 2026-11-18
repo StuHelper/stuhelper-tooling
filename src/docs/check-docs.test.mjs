@@ -238,3 +238,38 @@ test('unchanged newline-terminated documents stay outside the changed-date histo
   fs.writeFileSync(path.join(root, 'docs/spec/a.md'), doc('# A', 'spec', '2026-10-22'));
   assert.match(checkDocs(root, options).errors.join('\n'), /不早于本次内容修改日期 2026-10-24/);
 });
+
+test('explicit glossary must exist and empty aliases, placeholders and separators are ignored', t => {
+  const root = fixture(t, { 'README.md': '# 文档\n\n- 正文\n', 'terms.md': '| 术语 | Term | ID | 定义 | 替代表述 |\n| :--- | --- | --- | --- | ---- |\n| 甲 | A | a | 一 |   |\n| 乙 | B | b | 二 | -、—、无、  |\n' });
+  assert.throws(() => checkDocs(root, { glossary: 'absent.md' }), /absent.md/);
+  fs.symlinkSync('terms.md', path.join(root, 'selected.md'));
+  assert.deepEqual(checkDocs(root, { glossary: 'selected.md' }).errors, []);
+});
+test('real YAML navigation accepts nested and quoted paths, and reports stale entries', t => {
+  const root = fixture(t, { 'docs/spec/a.md': doc('# A\n\n[Missing](https://github.com/StuHelper/example/blob/develop/missing.md)'),
+    'mkdocs.yml': "repo_url: 'https://github.com/StuHelper/example/'\nnav:\n  - Group:\n      - 'spec/a.md' # title optional\n      - Old: missing.md\n" });
+  const errors = checkDocs(root).errors;
+  assert.equal(errors.length, 2);
+  assert.ok(errors.some(e => e.includes('missing or external local target')));
+  assert.ok(errors.some(e => e.includes('missing.md') && e.startsWith('mkdocs.yml:')));
+});
+
+test('merge inherits body date from the matching parent and shallow boundaries request history', t => {
+  const root = fixture(t, { 'docs/spec/a.md': doc('# Initial', 'spec', '2026-10-01') });
+  let day = '01';
+  const git = (...args) => execFileSync('git', ['-C', root, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', ...args],
+    { encoding: 'utf8', stdio: 'pipe', env: { ...process.env, GIT_AUTHOR_DATE: '2026-10-' + day + 'T00:00:00Z', GIT_COMMITTER_DATE: '2026-10-' + day + 'T00:00:00Z' } }).trim();
+  git('init', '-b', 'main'); git('add', '.'); git('commit', '-m', 'initial');
+  const base = git('rev-parse', 'HEAD');
+  git('checkout', '-b', 'topic'); day = '02';
+  const file = path.join(root, 'docs/spec/a.md');
+  fs.writeFileSync(file, doc('# Topic', 'spec', '2026-10-02')); git('commit', '-am', 'topic');
+  git('checkout', 'main'); day = '04'; git('merge', '--no-ff', '--no-commit', 'topic');
+  fs.writeFileSync(file, doc('# Topic', 'spec', '2026-10-03')); git('commit', '-am', 'merge with metadata');
+  const options = { base, now: Date.parse('2026-10-05T00:00:00Z') };
+  assert.deepEqual(checkDocs(root, options).errors, []);
+  const shallow = fs.mkdtempSync(path.join(os.tmpdir(), 'docs-shallow-'));
+  t.after(() => fs.rmSync(shallow, { recursive: true }));
+  git('clone', '--depth', '1', 'file://' + root, shallow);
+  assert.throws(() => checkDocs(shallow, { ...options, base: '0'.repeat(40) }), /shallow|浅克隆/);
+});

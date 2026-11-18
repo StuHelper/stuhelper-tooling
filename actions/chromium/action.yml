@@ -1,0 +1,29 @@
+name: Playwright Chromium
+description: Install Chromium system dependencies and reuse the browser matching the lockfile.
+runs:
+  using: composite
+  steps:
+    - id: scope
+      shell: bash
+      run: |
+        set -euo pipefail
+        [[ "$RUNNER_ENVIRONMENT" == github-hosted ]]
+        echo "PLAYWRIGHT_BROWSERS_PATH=$HOME/.cache/ms-playwright" >> "$GITHUB_ENV"
+        write=false
+        if [[ "$GITHUB_EVENT_NAME" == push || "$GITHUB_EVENT_NAME" == workflow_dispatch ]] &&
+           [[ "$GITHUB_REF" == refs/heads/develop || "$GITHUB_REF" == refs/heads/main ]]; then
+          write=true
+        fi
+        echo "write=$write" >> "$GITHUB_OUTPUT"
+    - uses: actions/cache@v6.1.0
+      if: steps.scope.outputs.write == 'true'
+      with:
+        path: ~/.cache/ms-playwright
+        key: chromium-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pnpm-lock.yaml') }}
+    - uses: actions/cache/restore@v6.1.0
+      if: steps.scope.outputs.write != 'true'
+      with:
+        path: ~/.cache/ms-playwright
+        key: chromium-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pnpm-lock.yaml') }}
+    - shell: bash
+      run: pnpm exec playwright install --with-deps chromium

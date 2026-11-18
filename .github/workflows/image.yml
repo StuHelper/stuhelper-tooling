@@ -10,95 +10,44 @@ on:
         description: Existing annotated release tag on main
         required: true
         type: string
-    secrets:
-      registry-user:
-        required: true
-      registry-password:
-        required: true
 permissions:
   contents: read
+  packages: write
 jobs:
   publish:
     name: Application image
-    if: github.event_name != 'pull_request' && github.event_name != 'pull_request_target'
-    runs-on:
-      group: ${{ github.event.repository.private && 'stuhelper-arc' || 'stuhelper-arc-release' }}
-      labels: ${{ github.event.repository.private && 'stuhelper-arc-sh-k8s' || 'stuhelper-arc-sh-release' }}
+    if: github.event.repository.private == false && github.event_name != 'pull_request' && github.event_name != 'pull_request_target'
+    runs-on: ubuntu-26.04
     timeout-minutes: 45
     environment: release
     env:
       APPLICATION: ${{ inputs.application }}
       VERSION: ${{ inputs.version }}
-      REGISTRY: ${{ vars.OCI_REGISTRY }}
+      IMAGE_PATH: stuhelper/stuhelper-${{ inputs.application }}
     steps:
-      - name: Validate release selection
-        id: runtime
+      - name: Resolve this workflow's tooling revision
+        id: tooling
         shell: bash
+        env:
+          WORKFLOW_JOB: ${{ toJSON(job) }}
         run: |
           set -euo pipefail
-          auth_directory=$(mktemp -d "$RUNNER_TEMP/registry-auth.XXXXXX")
-          printf 'auth-directory=%s\n' "$auth_directory" >> "$GITHUB_OUTPUT"
-          printf 'DOCKER_CONFIG=%s\n' "$auth_directory" >> "$GITHUB_ENV"
-          [[ "$APPLICATION" =~ ^(backend|web|admin)$ ]]
-          [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?$ ]]
-          [[ "$REGISTRY" =~ ^[a-zA-Z0-9][a-zA-Z0-9.:-]+$ ]]
-          [[ "${BUILDKIT_HOST:-}" =~ ^tcp://[A-Za-z0-9][A-Za-z0-9.-]*:[1-9][0-9]{0,4}$ ]]
-          printf 'buildkit-endpoint=%s\n' "$BUILDKIT_HOST" >> "$GITHUB_OUTPUT"
+          test ! -e .stuhelper-release-tools
+          test ! -L .stuhelper-release-tools
+          repository=$(jq -er '.workflow_repository | select(test("^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"))' <<< "$WORKFLOW_JOB")
+          sha=$(jq -er '.workflow_sha | select(test("^[0-9a-f]{40}$"))' <<< "$WORKFLOW_JOB")
+          printf 'repository=%s\nsha=%s\n' "$repository" "$sha" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v7.0.1
         with:
-          ref: ${{ inputs.version }}
+          repository: ${{ steps.tooling.outputs.repository }}
+          ref: ${{ steps.tooling.outputs.sha }}
+          path: .stuhelper-release-tools
           persist-credentials: false
-          fetch-depth: 0
-      - name: Verify tag and release ancestry
-        shell: bash
-        run: |
-          set -euo pipefail
-          test "$(git cat-file -t "refs/tags/$VERSION")" = tag
-          git merge-base --is-ancestor HEAD origin/main
-          test "$(git rev-parse "refs/tags/$VERSION^{commit}")" = "$(git rev-parse HEAD)"
-      - uses: docker/setup-buildx-action@v4.4.1
-        id: builder
+          sparse-checkout-cone-mode: false
+          sparse-checkout: /actions/publish-image/
+      - uses: ./.stuhelper-release-tools/actions/publish-image
         with:
-          driver: remote
-          endpoint: ${{ steps.runtime.outputs.buildkit-endpoint }}
-          cleanup: true
-      - uses: docker/login-action@v4.7.0
-        with:
-          registry: ${{ vars.OCI_REGISTRY }}
-          username: ${{ secrets.registry-user }}
-          password: ${{ secrets.registry-password }}
-      - name: Build and publish fixed source
-        shell: bash
-        env:
-          BUILDER: ${{ steps.builder.outputs.name }}
-        run: |
-          set -euo pipefail
-          image="$REGISTRY/stuhelper-next/$APPLICATION:$VERSION"
-          if docker buildx imagetools inspect "$image" > /dev/null 2> "$RUNNER_TEMP/image-existence.log"; then
-            echo 'Release image already exists; choose a new version.' >&2
-            exit 1
-          elif ! [[ "$(cat "$RUNNER_TEMP/image-existence.log")" =~ (manifest[[:space:]]unknown|not[[:space:]]found) ]]; then
-            echo 'Cannot confirm that the release image is absent.' >&2
-            exit 1
-          fi
-          docker buildx build --builder "$BUILDER" --platform linux/amd64 \
-            --build-arg "NODE_VERSION=$(cat .node-version)" \
-            --build-arg "GO_VERSION=$(cat .go-version)" \
-            --build-arg "SOURCE_REVISION=$(git rev-parse HEAD)" \
-            --build-arg "APP_VERSION=$VERSION" \
-            --provenance=true --sbom=true --metadata-file "$RUNNER_TEMP/image.json" \
-            --tag "$image" --push .
-          digest=$(jq -er '."containerimage.digest" | select(test("^sha256:[a-f0-9]{64}$"))' "$RUNNER_TEMP/image.json")
-          {
-            echo '### Published application image'
-            echo
-            echo "- Image: \`$image@$digest\`"
-            echo "- Source: \`$(git rev-parse HEAD)\`"
-            echo "- Go: \`$(cat .go-version)\`; Node: \`$(cat .node-version)\`"
-          } >> "$GITHUB_STEP_SUMMARY"
-      - name: Remove temporary authentication
-        if: always()
-        env:
-          AUTH_DIRECTORY: ${{ steps.runtime.outputs.auth-directory }}
-        shell: bash
-        run: test -z "$AUTH_DIRECTORY" || rm -rf -- "$AUTH_DIRECTORY"
+          source-directory: source
+          version: ${{ inputs.version }}
+          registry-user: ${{ github.actor }}
+          registry-password: ${{ github.token }}
