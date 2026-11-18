@@ -43,3 +43,5 @@ pnpm exec lefthook install
 packageManager 声明 pnpm 归档摘要时，setup 同时核验该摘要与 npm 发布的 SHA-512，然后使用已核验文件安装。未声明摘要时仍可复用匹配版本的预装 pnpm。
 
 镜像构建只使用应用源码目录。主步骤清除本作业的 Registry 认证文件，保留 Buildx 实例记录供 Post 步骤注销。无法确认镜像不存在时，记录 Registry 错误并停止构建。
+
+文档检查会解析嵌套导航、核验显式指定的术语表，并沿正文相同的父提交追溯更新时间。浅克隆在历史不足时提示补取。
