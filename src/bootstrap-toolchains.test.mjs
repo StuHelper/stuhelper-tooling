@@ -62,6 +62,7 @@ test('arc-toolchains reuses preinstalled tools and records preinstalled summary 
       GITHUB_ENV: githubEnv,
       GITHUB_PATH: githubPath,
       GITHUB_STEP_SUMMARY: summaryFile,
+      STUHELPER_SETUP_RECORDS: '',
       GO_VERSION_FILE: '.go-version',
     },
   });
@@ -211,6 +212,7 @@ exec /usr/bin/curl "\${args[@]}"
       GITHUB_ENV: githubEnv,
       GITHUB_PATH: githubPath,
       GITHUB_STEP_SUMMARY: summaryFile,
+      STUHELPER_SETUP_RECORDS: '',
       GO_VERSION_FILE: '.go-version',
     },
   });
@@ -293,8 +295,9 @@ exit 0
   assert.equal(pre.status, 0, pre.stderr);
   assert.match(fs.readFileSync(githubEnv, 'utf8'), new RegExp(`^STUHELPER_TEST_PG_BIN=${pgBin.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'm'));
 
-  execFileSync('bash', [summaryScript, 'flush'], { env: { ...process.env, STUHELPER_SETUP_RECORDS: recordsPath, GITHUB_STEP_SUMMARY: summaryFile } });
+  execFileSync('bash', [summaryScript, 'flush'], { env: { ...process.env, STUHELPER_SETUP_RECORDS: recordsPath, GITHUB_STEP_SUMMARY: summaryFile, GITHUB_ENV: githubEnv } });
   assert.ok(!fs.existsSync(recordsPath));
+  assert.match(fs.readFileSync(githubEnv, 'utf8'), /^STUHELPER_SETUP_RECORDS=$/m);
   assert.match(fs.readFileSync(summaryFile, 'utf8'), /\| PostgreSQL \| `17\.4` \| preinstalled \| \d+\.\d{2} s \|/);
 
   // Missing package + forged PGDG key must fail SHA-256 verification before sudo install.

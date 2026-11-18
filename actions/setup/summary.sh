@@ -47,6 +47,9 @@ flush_toolchain_summary() {
   if [[ -n "$records" ]]; then
     rm -f -- "$records"
   fi
+  if [[ -n "${GITHUB_ENV:-}" && -f "${GITHUB_ENV:-}" ]]; then
+    printf 'STUHELPER_SETUP_RECORDS=\n' >> "$GITHUB_ENV"
+  fi
 }
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
