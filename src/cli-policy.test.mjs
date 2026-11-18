@@ -57,3 +57,9 @@ test('repository rejects key material in an otherwise ordinary filename', t => {
   assert.ok(!r.stderr.includes(label));
   assert.equal(fs.readFileSync(file, 'utf8'), 'fixture text\n' + label + '\n');
 });
+
+test('sensitive text is never passed to diagnostic formatters that quote input', () => {
+  const header = '-----BEGIN ' + 'PRIVATE KEY-----';
+  const errors = checkSource('fixture.json', header + '\nfixture payload');
+  assert.deepEqual(errors, ['fixture.json: private key material']);
+});

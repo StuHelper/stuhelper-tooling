@@ -16,7 +16,8 @@ export function privateMaterialErrors(file) {
 
 export function checkSource(file, source, executable = false) {
   const errors = privateMaterialErrors(file);
-  if (/^-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY-----\s*$/m.test(source)) errors.push(`${file}: private key material`);
+  if (errors.length) return errors;
+  if (/^-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY-----\s*$/m.test(source)) return [`${file}: private key material`];
   try {
     if (file.endsWith('.json')) JSON.parse(source);
     if (/\.ya?ml$/.test(file)) {
@@ -42,6 +43,8 @@ export function checkRepository(root) {
   for (const file of files) {
     const location = path.join(root, file);
     if (!fs.existsSync(location) || !fs.lstatSync(location).isFile()) continue;
+    const nameErrors = privateMaterialErrors(file);
+    if (nameErrors.length) { errors.push(...nameErrors); continue; }
     const source = fs.readFileSync(location);
     const executable = modes.has(file) ? modes.get(file) === '100755' : Boolean(fs.statSync(location).mode & 0o111);
     if (source.includes(0)) {
