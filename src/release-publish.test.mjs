@@ -6,15 +6,15 @@ import test from 'node:test';
 import { spawnSync, execFileSync } from 'node:child_process';
 import { parse } from 'yaml';
 
-const steps = parse(fs.readFileSync('actions/release-assets/action.yml', 'utf8')).runs.steps;
+const steps = parse(fs.readFileSync('actions/publish-release-assets/action.yml', 'utf8')).runs.steps;
 const script = steps.find(step => step.name === 'Publish verified assets').run;
 function fixture(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'release-publish-'));
   t.after(() => fs.rmSync(root, { recursive: true }));
   const output = path.join(root, 'release-output');
   fs.mkdirSync(output);
-  for (const name of ['archive.tgz', 'BUILD-INFO.txt', 'LICENSE']) fs.writeFileSync(path.join(output, name), name);
-  fs.writeFileSync(path.join(output, 'SHA256SUMS'), execFileSync('sha256sum', ['archive.tgz', 'LICENSE', 'BUILD-INFO.txt'], { cwd: output }));
+  for (const name of ['stuhelper-backend-v1.2.3-linux-amd64.tar.gz', 'BUILD-INFO.txt', 'LICENSE']) fs.writeFileSync(path.join(output, name), name);
+  fs.writeFileSync(path.join(output, 'SHA256SUMS'), execFileSync('sha256sum', ['stuhelper-backend-v1.2.3-linux-amd64.tar.gz', 'LICENSE', 'BUILD-INFO.txt'], { cwd: output }));
   // Only the fixture directory represents remote state. No GitHub client is called.
   fs.writeFileSync(path.join(root, 'gh'), `#!/usr/bin/env python3
 import sys, os, json, shutil
@@ -76,4 +76,15 @@ test('interrupted draft resumes, verifies bytes and publishes the complete set o
   fs.writeFileSync(path.join(root, 'assets/LICENSE'), 'different');
   assert.notEqual(run().status, 0);
   assert.equal(fs.readFileSync(path.join(root, 'assets/LICENSE'), 'utf8'), 'different');
+});
+
+test('unexpected or corrupted build files fail before creating a release', t => {
+  const { root, run } = fixture(t);
+  const extra = path.join(root, 'release-output', 'unexpected');
+  fs.writeFileSync(extra, 'extra');
+  assert.notEqual(run().status, 0);
+  fs.unlinkSync(extra);
+  fs.appendFileSync(path.join(root, 'release-output', 'LICENSE'), 'changed');
+  assert.notEqual(run().status, 0);
+  assert.ok(!fs.existsSync(path.join(root, 'create-attempt')));
 });

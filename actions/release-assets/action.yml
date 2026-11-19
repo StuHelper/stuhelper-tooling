@@ -93,48 +93,6 @@ runs:
         } > "$output/BUILD-INFO.txt"
         (cd "$output" && sha256sum "$archive" LICENSE BUILD-INFO.txt > SHA256SUMS)
         for file in "$output"/*; do test "$(stat -c %s "$file")" -lt 2147483648; done
-    - name: Publish verified assets
-      env:
-        GH_TOKEN: ${{ github.token }}
-      shell: bash
-      run: |
-        set -euo pipefail
-        output="$RUNNER_TEMP/release-output"
-        state="$RUNNER_TEMP/existing-release.json"
-        lookup_error="$RUNNER_TEMP/release-lookup.log"
-        marker="StuHelper release assets: $GITHUB_REPOSITORY/$APPLICATION@$VERSION"
-        if gh release view "$VERSION" --json isDraft,body,assets > "$state" 2> "$lookup_error"; then
-          draft=$(jq -er '.isDraft | tostring' "$state")
-          if [[ "$draft" == true ]]; then
-            jq -e --arg marker "$marker" '.body == $marker' "$state" >/dev/null || { echo "Unexpected draft owner" >&2; exit 1; }
-          fi
-        elif [[ "$(cat "$lookup_error")" == 'release not found' ]]; then
-          gh release create "$VERSION" --verify-tag --draft --title "$VERSION" --notes "$marker"
-          draft=true
-          echo '{"assets":[]}' > "$state"
-        else
-          cat "$lookup_error" >&2
-          exit 1
-        fi
-        verify=$(mktemp -d "$RUNNER_TEMP/release-verify.XXXXXX")
-        trap 'rm -rf -- "$verify"' EXIT
-        for file in "$output"/*; do
-          name=$(basename "$file")
-          status=$(jq -r --arg name "$name" '[.assets[] | select(.name == $name) | .state // "uploaded"][0] // "missing"' "$state")
-          if [[ "$draft" == true && "$status" == "starter" ]]; then
-            gh release delete-asset "$VERSION" "$name" --yes
-            status=missing
-          fi
-          if [[ "$status" == missing ]]; then
-            [[ "$draft" == true ]] || { echo "Missing published asset: $name" >&2; exit 1; }
-            gh release upload "$VERSION" "$file"
-          fi
-          gh release download "$VERSION" --pattern "$name" --dir "$verify"
-          cmp "$file" "$verify/$name"
-        done
-        (cd "$verify" && sha256sum --check SHA256SUMS)
-        if [[ "$draft" == true ]]; then gh release edit "$VERSION" --draft=false; fi
-        gh release view "$VERSION" --json url,assets >> "$GITHUB_STEP_SUMMARY"
     - name: Remove temporary credential helper
       if: always()
       shell: bash

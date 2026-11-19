@@ -13,7 +13,22 @@ const build = action.runs.steps.find(step => step.name === 'Build fixed source')
 test('release passes tag and actual commit to the source builder and refuses failed builds', t => {
   const privateWorkflow = YAML.parse(fs.readFileSync(new URL('../.github/workflows/release-private.yml', import.meta.url), 'utf8'));
   for (const value of [workflow, privateWorkflow]) {
-    const steps = value.jobs.publish.steps;
+    const { build, publish } = value.jobs;
+    assert.equal(value.permissions.contents, 'read');
+    assert.equal(build.permissions?.contents ?? value.permissions.contents, 'read');
+    assert.match(build.if, /github.event_name != 'pull_request_target'/);
+    assert.equal(publish.needs, 'build');
+    assert.deepEqual(publish['runs-on'], build['runs-on']);
+    assert.equal(publish.environment, 'release');
+    assert.equal(publish.permissions.contents, 'write');
+    const upload = build.steps.find(step => step.uses?.startsWith('actions/upload-artifact@'));
+    assert.equal(upload.with['retention-days'], 1);
+    const download = publish.steps.find(step => step.uses?.startsWith('actions/download-artifact@'));
+    assert.equal(download.with['artifact-ids'], '${{ needs.build.outputs.artifact-id }}');
+    assert.deepEqual(publish.steps.filter(step => step.uses?.startsWith('actions/checkout@')).map(step => step.with.repository), ['${{ steps.tooling.outputs.repository }}']);
+    assert.ok(!build.steps.some(step => step.uses?.includes('/publish-release-assets')));
+    assert.ok(publish.steps.some(step => step.uses === './.stuhelper-release-tools/actions/publish-release-assets'));
+    const steps = build.steps;
     const checkout = steps.find(step => step.with?.path === '.stuhelper-release-tools');
     assert.equal(checkout.with.ref, '${{ steps.tooling.outputs.sha }}');
     const release = steps.find(step => step.uses === './.stuhelper-release-tools/actions/release-assets');
