@@ -18,6 +18,7 @@ test('release passes tag and actual commit to the source builder and refuses fai
     assert.equal(build.permissions?.contents ?? value.permissions.contents, 'read');
     assert.match(build.if, /github.event_name != 'pull_request_target'/);
     assert.equal(publish.needs, 'build');
+    assert.deepEqual(publish['runs-on'], build['runs-on']);
     assert.equal(publish.environment, 'release');
     assert.equal(publish.permissions.contents, 'write');
     const upload = build.steps.find(step => step.uses?.startsWith('actions/upload-artifact@'));

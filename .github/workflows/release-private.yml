@@ -78,7 +78,8 @@ jobs:
     environment: release
     permissions:
       contents: write
-    runs-on: ubuntu-26.04
+    runs-on:
+      group: stuhelper-arc
     timeout-minutes: 15
     env:
       GH_REPO: ${{ github.repository }}
