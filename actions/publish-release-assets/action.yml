@@ -1,0 +1,57 @@
+name: Publish verified release files
+description: Upload the four verified release files from the build job
+runs:
+  using: composite
+  steps:
+    - name: Publish verified assets
+      env:
+        GH_TOKEN: ${{ github.token }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        [[ "$APPLICATION" =~ ^(backend|web|admin|campus-adapters)$ ]]
+        [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+        archive="stuhelper-$APPLICATION-$VERSION-linux-amd64.tar.gz"
+        if [[ "$APPLICATION" =~ ^(web|admin)$ ]]; then archive="stuhelper-$APPLICATION-$VERSION.tar.gz"; fi
+        output="$RUNNER_TEMP/release-output"
+        # Recompute the fixed manifest before any remote write. Treat all downloaded files as data.
+        for name in "$archive" LICENSE BUILD-INFO.txt SHA256SUMS; do
+          [[ -f "$output/$name" && ! -L "$output/$name" && -s "$output/$name" ]]
+        done
+        [[ $(find "$output" -mindepth 1 -maxdepth 1 -printf . | wc -c) -eq 4 ]]
+        (cd "$output" && sha256sum -- "$archive" LICENSE BUILD-INFO.txt | cmp - SHA256SUMS)
+        state="$RUNNER_TEMP/existing-release.json"
+        lookup_error="$RUNNER_TEMP/release-lookup.log"
+        marker="StuHelper release assets: $GITHUB_REPOSITORY/$APPLICATION@$VERSION"
+        if gh release view "$VERSION" --json isDraft,body,assets > "$state" 2> "$lookup_error"; then
+          draft=$(jq -er '.isDraft | tostring' "$state")
+          if [[ "$draft" == true ]]; then
+            jq -e --arg marker "$marker" '.body == $marker' "$state" >/dev/null || { echo "Unexpected draft owner" >&2; exit 1; }
+          fi
+        elif [[ "$(cat "$lookup_error")" == 'release not found' ]]; then
+          gh release create "$VERSION" --verify-tag --draft --title "$VERSION" --notes "$marker"
+          draft=true
+          echo '{"assets":[]}' > "$state"
+        else
+          cat "$lookup_error" >&2
+          exit 1
+        fi
+        verify=$(mktemp -d "$RUNNER_TEMP/release-verify.XXXXXX")
+        trap 'rm -rf -- "$verify"' EXIT
+        for file in "$output"/*; do
+          name=$(basename "$file")
+          status=$(jq -r --arg name "$name" '[.assets[] | select(.name == $name) | .state // "uploaded"][0] // "missing"' "$state")
+          if [[ "$draft" == true && "$status" == "starter" ]]; then
+            gh release delete-asset "$VERSION" "$name" --yes
+            status=missing
+          fi
+          if [[ "$status" == missing ]]; then
+            [[ "$draft" == true ]] || { echo "Missing published asset: $name" >&2; exit 1; }
+            gh release upload "$VERSION" "$file"
+          fi
+          gh release download "$VERSION" --pattern "$name" --dir "$verify"
+          cmp "$file" "$verify/$name"
+        done
+        (cd "$verify" && sha256sum --check SHA256SUMS)
+        if [[ "$draft" == true ]]; then gh release edit "$VERSION" --draft=false; fi
+        gh release view "$VERSION" --json url,assets >> "$GITHUB_STEP_SUMMARY"

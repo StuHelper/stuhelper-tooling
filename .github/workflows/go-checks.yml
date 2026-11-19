@@ -2,14 +2,14 @@ name: Reusable Go checks
 on:
   workflow_call:
     inputs:
-      runs-on:
-        description: JSON runner label or group/labels object; public callers always use hosted runners
-        type: string
-        default: '"ubuntu-26.04"'
       name:
         description: Stable required check name
         type: string
         default: Go checks
+      postgres:
+        description: Install or reuse PostgreSQL server and client meta-packages
+        type: string
+        default: 'false'
       setup-command:
         description: Optional setup after dependency installation, such as isolated database tools
         type: string
@@ -23,7 +23,7 @@ permissions:
 jobs:
   check:
     name: ${{ inputs.name }}
-    runs-on: ${{ fromJSON(github.event.repository.private && inputs.runs-on || '"ubuntu-26.04"') }}
+    runs-on: ubuntu-26.04
     timeout-minutes: 25
     env:
       LEFTHOOK: '0'
@@ -33,19 +33,34 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.1
         with:
-          persist-credentials: false
           fetch-depth: 0
-      - uses: StuHelper/stuhelper-tooling/actions/setup@v0.1.8
+          persist-credentials: false
+      - name: Resolve this workflow's tooling revision
+        id: tooling
+        shell: bash
+        env:
+          WORKFLOW_JOB: ${{ toJSON(job) }}
+        run: |
+          set -euo pipefail
+          test ! -L .tools
+          test ! -e .tools/stuhelper-workflow
+          test ! -L .tools/stuhelper-workflow
+          printf '/.tools/stuhelper-workflow/\n' >> "$(git rev-parse --git-path info/exclude)"
+          repository=$(jq -er '.workflow_repository | select(test("^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"))' <<< "$WORKFLOW_JOB")
+          sha=$(jq -er '.workflow_sha | select(test("^[0-9a-f]{40}$"))' <<< "$WORKFLOW_JOB")
+          printf 'repository=%s\nsha=%s\n' "$repository" "$sha" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v7.0.1
         with:
+          repository: ${{ steps.tooling.outputs.repository }}
+          ref: ${{ steps.tooling.outputs.sha }}
+          path: .tools/stuhelper-workflow
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: /actions/repository-check/
+      - uses: ./.tools/stuhelper-workflow/actions/repository-check
+        with:
+          setup-command: ${{ inputs.setup-command }}
+          check-command: ${{ inputs.check-command }}
           go-version-file: .go-version
-      - name: Install locked tools
-        run: pnpm install --frozen-lockfile
-      - name: Prepare the module
-        if: inputs.setup-command != ''
-        env:
-          SETUP_COMMAND: ${{ inputs.setup-command }}
-        run: bash -euo pipefail -c "$SETUP_COMMAND"
-      - name: Check standalone Go module
-        env:
-          CHECK_COMMAND: ${{ inputs.check-command }}
-        run: bash -euo pipefail -c "$CHECK_COMMAND"
+          source-checked-out: 'true'
+          postgres: ${{ inputs.postgres }}
