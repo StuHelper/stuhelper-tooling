@@ -11,9 +11,15 @@ test('invalid YAML, duplicate keys and malformed JSON fail', () => {
   assert(checkSource('config.json', '{no}').length);
   assert.deepEqual(checkSource('config.yaml', 'version: 1\n'), []);
 });
-test('only direct script entry points carry shebang and execute permission together', () => {
-  assert(checkSource('check.mjs', '#!/usr/bin/env node\n', false).length);
-  assert(checkSource('check.mjs', 'export {}\n', true).length);
+test('only direct script entry points carry shebang and execute permission together and report fix commands', () => {
+  const missingExec = checkSource('scripts/check.mjs', '#!/usr/bin/env node\n', false);
+  assert.equal(missingExec.length, 1);
+  assert.match(missingExec[0], /git update-index --chmod=\+x scripts\/check\.mjs/);
+
+  const missingShebang = checkSource('scripts/lib.mjs', 'export {}\n', true);
+  assert.equal(missingShebang.length, 1);
+  assert.match(missingShebang[0], /git update-index --chmod=-x scripts\/lib\.mjs/);
+
   assert.deepEqual(checkSource('check.mjs', '#!/usr/bin/env node\n', true), []);
   assert.deepEqual(checkSource('check.mjs', 'export {}\n', false), []);
 });

@@ -12,10 +12,13 @@
     "hooks": "lefthook install"
   },
   "devDependencies": {
-    "lefthook": "2.2.2"
+    "eslint": "10.13.0",
+    "eslint-plugin-vue": "10.11.1",
+    "lefthook": "2.2.2",
+    "vue-eslint-parser": "10.4.1"
   },
   "packageManager": "pnpm@10.33.4",
-  "version": "0.1.9",
+  "version": "0.1.12",
   "files": [
     "bin",
     "src",
@@ -25,10 +28,14 @@
     "stuhelper-check": "bin/stuhelper-check.mjs"
   },
   "exports": {
+    "./contracts": "./src/contracts.mjs",
     "./docs": "./src/docs/check-docs.mjs",
-    "./i18n": "./src/i18n/check-i18n.mjs"
+    "./i18n": "./src/i18n/check-i18n.mjs",
+    "./presets/frontend-eslint": "./presets/frontend-eslint.mjs"
   },
   "dependencies": {
+    "@babel/parser": "7.29.9",
+    "@vue/compiler-dom": "3.5.44",
     "github-slugger": "2.0.0",
     "markdown-it": "15.0.3",
     "markdownlint": "0.42.0",
