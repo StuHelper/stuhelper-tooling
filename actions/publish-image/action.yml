@@ -26,12 +26,7 @@ runs:
         printf 'DOCKER_CONFIG=%s\n' "$auth_directory" >> "$GITHUB_ENV"
         [[ "$APPLICATION" =~ ^(backend|web|admin)$ ]]
         [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?$ ]]
-        if [[ "$RUNNER_ENVIRONMENT" == self-hosted ]]; then
-          REGISTRY=${STUHELPER_OCI_REGISTRY:?Configure the site registry before publishing a private application image}
-        else
-          REGISTRY=ghcr.io
-        fi
-        [[ "$REGISTRY" =~ ^[a-zA-Z0-9][a-zA-Z0-9.:-]+$ ]]
+        REGISTRY=ghcr.io
         printf 'registry=%s\n' "$REGISTRY" >> "$GITHUB_OUTPUT"
         printf 'REGISTRY=%s\n' "$REGISTRY" >> "$GITHUB_ENV"
         if [[ "$RUNNER_ENVIRONMENT" == self-hosted ]]; then

@@ -37,6 +37,7 @@ test('image.yml validates release inputs, creates isolated auth directory and cl
     encoding: 'utf8',
   });
   assert.equal(valid.status, 0, valid.stderr);
+  assert.match(fs.readFileSync(output, 'utf8'), /^registry=ghcr\.io$/m);
   const authDir = /^auth-directory=(.+)$/m.exec(fs.readFileSync(output, 'utf8'))?.[1];
   assert.ok(authDir && fs.existsSync(authDir));
   assert.match(fs.readFileSync(envFile, 'utf8'), new RegExp(`^DOCKER_CONFIG=${authDir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'm'));
@@ -44,7 +45,6 @@ test('image.yml validates release inputs, creates isolated auth directory and cl
   for (const override of [
     { APPLICATION: 'unknown' },
     { VERSION: 'main' },
-    { STUHELPER_OCI_REGISTRY: 'https://bad-scheme' },
     { BUILDKIT_HOST: 'unix:///var/run/buildkitd.sock' },
   ]) {
     const failed = spawnSync('bash', ['-c', validateStep.run], {
@@ -56,7 +56,7 @@ test('image.yml validates release inputs, creates isolated auth directory and cl
         GITHUB_ENV: envFile,
         APPLICATION: 'backend',
         VERSION: 'v1.0.0',
-        RUNNER_ENVIRONMENT: 'self-hosted', STUHELPER_OCI_REGISTRY: 'registry.example.com', REGISTRY: 'registry.example.com', IMAGE_PATH: 'stuhelper-next/backend',
+        RUNNER_ENVIRONMENT: 'self-hosted', REGISTRY: 'registry.example.com', IMAGE_PATH: 'stuhelper/stuhelper-backend',
         BUILDKIT_HOST: 'tcp://buildkitd:1234',
         ...override,
       },
@@ -132,7 +132,7 @@ exit 1
     PATH: `${bin}:${process.env.PATH}`,
     RUNNER_TEMP: runtime,
     GITHUB_STEP_SUMMARY: summaryFile,
-    RUNNER_ENVIRONMENT: 'self-hosted', STUHELPER_OCI_REGISTRY: 'registry.example.com', REGISTRY: 'registry.example.com', IMAGE_PATH: 'stuhelper-next/backend',
+    RUNNER_ENVIRONMENT: 'self-hosted', REGISTRY: 'registry.example.com', IMAGE_PATH: 'stuhelper/stuhelper-backend',
     APPLICATION: 'backend',
     VERSION: 'v1.0.0',
     BUILDER: 'builder-0',
@@ -149,5 +149,5 @@ exit 1
   const published = spawnSync('bash', ['-c', buildStep.run], { cwd: directory, env: { ...baseEnv, MOCK_INSPECT: 'missing' }, encoding: 'utf8' });
   assert.equal(published.status, 0, published.stderr);
   const summary = fs.readFileSync(summaryFile, 'utf8');
-  assert.match(summary, new RegExp(`registry\\.example\\.com/stuhelper-next/backend:v1\\.0\\.0@${digest}`));
+  assert.match(summary, new RegExp(`registry\\.example\\.com/stuhelper/stuhelper-backend:v1\\.0\\.0@${digest}`));
 });

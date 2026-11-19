@@ -10,13 +10,9 @@ on:
         description: Existing annotated release tag on main
         required: true
         type: string
-    secrets:
-      registry-user:
-        required: true
-      registry-password:
-        required: true
 permissions:
   contents: read
+  packages: write
 jobs:
   publish:
     name: Application image
@@ -28,7 +24,7 @@ jobs:
     env:
       APPLICATION: ${{ inputs.application }}
       VERSION: ${{ inputs.version }}
-      IMAGE_PATH: stuhelper-next/${{ inputs.application }}
+      IMAGE_PATH: stuhelper/stuhelper-${{ inputs.application }}
     steps:
       - name: Resolve this workflow's tooling revision
         id: tooling
@@ -54,5 +50,5 @@ jobs:
         with:
           source-directory: source
           version: ${{ inputs.version }}
-          registry-user: ${{ secrets.registry-user }}
-          registry-password: ${{ secrets.registry-password }}
+          registry-user: ${{ github.actor }}
+          registry-password: ${{ github.token }}
