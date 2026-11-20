@@ -38,7 +38,7 @@ runs:
           identity=$(id -un)
           printf 'USER=%s\nLOGNAME=%s\n' "$identity" "$identity" >> "$GITHUB_ENV"
         fi
-    - uses: StuHelper/stuhelper-tooling/actions/setup@v0.1.11
+    - uses: StuHelper/stuhelper-tooling/actions/setup@v0.1.12
       with:
         go-version-file: ${{ inputs.go-version-file }}
         postgres: ${{ inputs.postgres }}

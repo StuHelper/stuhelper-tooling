@@ -31,7 +31,7 @@ runs:
         test "$(git cat-file -t "refs/tags/$VERSION")" = tag
         test "$(git rev-parse "refs/tags/$VERSION^{commit}")" = "$(git rev-parse HEAD)"
         git merge-base --is-ancestor HEAD origin/main
-    - uses: StuHelper/stuhelper-tooling/actions/setup@v0.1.11
+    - uses: StuHelper/stuhelper-tooling/actions/setup@v0.1.12
       with:
         go-version-file: ${{ (inputs.application == 'backend' || inputs.application == 'campus-adapters') && '.go-version' || '' }}
     - name: Download private Go dependencies

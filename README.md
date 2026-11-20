@@ -57,4 +57,4 @@ packageManager 声明 pnpm 归档摘要时，setup 同时核验该摘要与 npm 
 
 CLI 拒绝不适用的参数。仓库与暂存检查识别受限文件名、敏感目录及私钥头。发现私钥时只报告路径。
 
-两个 Go 检查工作流均接受 postgres 选项。私有工作流还接受可选 modules-read-token，在独立的临时 Git 配置中下载当前 go.mod 的依赖，收尾时删除该配置。
+两个 Go 检查工作流均接受 postgres 选项。启用后，setup 使用工作区登记的 PostgreSQL 主版本，检查或安装带主版本号的服务端和客户端包，并通过 STUHELPER_TEST_PG_BIN 提供二进制目录。私有工作流还接受可选 modules-read-token，在独立的临时 Git 配置中下载当前 go.mod 的依赖，收尾时删除该配置。
