@@ -16,7 +16,7 @@ inputs:
     description: pnpm lockfiles used by the checked out applications
     default: pnpm-lock.yaml
   postgres:
-    description: Prepare PostgreSQL server and client meta-packages
+    description: Prepare the pinned PostgreSQL server and client major version
     default: 'false'
 runs:
   using: composite
