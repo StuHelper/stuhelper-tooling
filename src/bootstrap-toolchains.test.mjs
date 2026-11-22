@@ -27,27 +27,23 @@ test('postgres.sh reuses preinstalled packages, rejects tampered PGDG keys and f
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
   const bin = path.join(directory, 'bin');
   const pgRoot = path.join(directory, 'pgroot');
-  const pgBin = path.join(pgRoot, '17/bin');
+  const pgBin = path.join(pgRoot, '18/bin');
   const runtime = path.join(directory, 'runtime');
   fs.mkdirSync(bin);
   fs.mkdirSync(pgBin, { recursive: true });
   fs.mkdirSync(runtime);
   fs.writeFileSync(path.join(pgBin, 'initdb'), '#!/usr/bin/env bash\nexit 0\n', { mode: 0o755 });
-  fs.writeFileSync(path.join(pgBin, 'postgres'), '#!/usr/bin/env bash\necho "postgres (PostgreSQL) 17.4"\n', { mode: 0o755 });
+  fs.writeFileSync(path.join(pgBin, 'postgres'), '#!/usr/bin/env bash\necho "postgres (PostgreSQL) 18.7"\n', { mode: 0o755 });
 
-  fs.writeFileSync(path.join(pgBin, 'psql'), '#!/bin/sh\necho 17.4\n', { mode: 0o755 });
+  fs.writeFileSync(path.join(pgBin, 'psql'), '#!/bin/sh\necho 18.7\n', { mode: 0o755 });
   fs.writeFileSync(
     path.join(bin, 'dpkg-query'),
     `#!/usr/bin/env bash
-if [[ "\${1:-}" == "-W" && "\${2:-}" == '-f=\${Status}\\n' ]]; then
+if [[ "$1" == "-W" && "$2" == '-f=\${Status}\\n' && "$3" == postgresql-18 && "$4" == postgresql-client-18 ]]; then
   printf 'install ok installed\\ninstall ok installed\\n'
   exit 0
 fi
-if [[ "\${1:-}" == "-W" && "\${2:-}" == '-f=\${Depends}' ]]; then
-  printf 'postgresql-17'
-  exit 0
-fi
-exit 0
+exit 1
 `,
     { mode: 0o755 },
   );
@@ -81,7 +77,7 @@ exit 0
   execFileSync('bash', [summaryScript, 'flush'], { env: { ...process.env, STUHELPER_SETUP_RECORDS: '', STUHELPER_SETUP_RECORDS: recordsPath, GITHUB_STEP_SUMMARY: summaryFile, GITHUB_ENV: githubEnv } });
   assert.ok(!fs.existsSync(recordsPath));
   assert.match(fs.readFileSync(githubEnv, 'utf8'), /^STUHELPER_SETUP_RECORDS=$/m);
-  assert.match(fs.readFileSync(summaryFile, 'utf8'), /\| PostgreSQL \| `17\.4` \| preinstalled \| \d+\.\d{2} s \|/);
+  assert.match(fs.readFileSync(summaryFile, 'utf8'), /\| PostgreSQL \| `18\.7` \| preinstalled \| \d+\.\d{2} s \|/);
 
   // Missing package + forged PGDG key must fail SHA-256 verification before sudo install.
   const osRelease = path.join(directory, 'os-release');

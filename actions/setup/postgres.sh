@@ -5,14 +5,17 @@ action_path=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=actions/setup/summary.sh
 . "$action_path/summary.sh"
 start=$(now_ms)
+# Synchronized from architecture/toolchains.yaml by the StuHelper workspace.
+pg_major=18
+pg_server_package="postgresql-$pg_major"
+pg_client_package="postgresql-client-$pg_major"
 pg_source=preinstalled
-if statuses=$(dpkg-query -W -f='${Status}\n' postgresql postgresql-client 2>/dev/null) &&
+if statuses=$(dpkg-query -W -f='${Status}\n' "$pg_server_package" "$pg_client_package" 2>/dev/null) &&
    [[ "$statuses" == $'install ok installed\ninstall ok installed' ]]; then
-  printf 'Using preinstalled PostgreSQL meta-packages\n'
+  printf 'Using preinstalled PostgreSQL %s packages\n' "$pg_major"
 else
   pg_source=downloaded
-  # An older Ubuntu base may only offer an older PostgreSQL major. Use the
-  # upstream stable repository, whose signed metadata selects the meta-package.
+  # Use the upstream stable repository when the requested packages are missing.
   # shellcheck disable=SC1090
   . "${STUHELPER_OS_RELEASE:-/etc/os-release}"
   [[ "${ID:-}" == ubuntu && "${VERSION_CODENAME:-}" =~ ^[a-z]+$ ]]
@@ -26,11 +29,9 @@ else
   printf 'Types: deb\nURIs: https://apt.postgresql.org/pub/repos/apt\nSuites: %s-pgdg\nComponents: main\nSigned-By: %s\n' "$VERSION_CODENAME" "$keyring" > "$directory/pgdg.sources"
   sudo -n install -m 0644 "$directory/pgdg.sources" "$sources"
   sudo -n env DEBIAN_FRONTEND=noninteractive apt-get -o Acquire::Retries=3 -o Acquire::https::Timeout=30 -o Acquire::http::Timeout=30 -o DPkg::Lock::Timeout=120 update -qq
-  sudo -n env DEBIAN_FRONTEND=noninteractive apt-get -o Acquire::Retries=3 -o Acquire::https::Timeout=30 -o Acquire::http::Timeout=30 -o DPkg::Lock::Timeout=120 install -y --no-install-recommends postgresql postgresql-client
+  sudo -n env DEBIAN_FRONTEND=noninteractive apt-get -o Acquire::Retries=3 -o Acquire::https::Timeout=30 -o Acquire::http::Timeout=30 -o DPkg::Lock::Timeout=120 install -y --no-install-recommends "$pg_server_package" "$pg_client_package"
 fi
-pg_package=$(dpkg-query -W -f='${Depends}' postgresql | grep -oE 'postgresql-[0-9]+' | head -n 1)
-test -n "$pg_package"
-pg_bin="${STUHELPER_PG_ROOT:-/usr/lib/postgresql}/${pg_package#postgresql-}/bin"
+pg_bin="${STUHELPER_PG_ROOT:-/usr/lib/postgresql}/$pg_major/bin"
 test -x "$pg_bin/initdb"
 "$pg_bin/psql" --version
 pg_version_raw=$("$pg_bin/postgres" --version)
